@@ -263,10 +263,13 @@ export default function UploadPage() {
   const pdfToForm = (data: Record<string, unknown>): Partial<FormData> => ({
     name: (data.property_name as string) || '',
     address: (data.address as string) || '',
+    city: (data.city as string) || '',
+    zip_code: (data.zip_code as string) || '',
     property_type: (data.property_type as string) || 'RESIDENTIAL',
-    purchase_price: data.purchase_price != null ? String(data.purchase_price) : '',
+    purchase_price: data.purchase_price != null ? String(Math.round(data.purchase_price as number)) : '',
     total_area_sqm: data.total_area != null ? String(data.total_area) : '',
     construction_year: data.construction_year != null ? String(data.construction_year) : '',
+    floors: data.floors != null ? String(data.floors) : '',
     units: data.units != null ? String(data.units) : '',
   });
 
