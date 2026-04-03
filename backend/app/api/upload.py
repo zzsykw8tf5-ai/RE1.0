@@ -240,13 +240,22 @@ class PropertyCreate(BaseModel):
     floors: int | None = None
     units: int | None = None
     purchase_price: float | None = None
+    purchase_date: str | None = None  # ISO date string "YYYY-MM-DD"
 
 
 @router.post("/properties")
 def create_property(data: PropertyCreate, db: Session = Depends(get_db)):
     """Create a property from manual form input."""
+    from datetime import date as date_type
+    raw = data.model_dump()
+    # Parse purchase_date string to date object
+    if raw.get("purchase_date"):
+        try:
+            raw["purchase_date"] = date_type.fromisoformat(raw["purchase_date"])
+        except (ValueError, TypeError):
+            raw["purchase_date"] = None
     valid_cols = set(Property.__table__.columns.keys())
-    prop = Property(**{k: v for k, v in data.model_dump().items() if k in valid_cols and v is not None})
+    prop = Property(**{k: v for k, v in raw.items() if k in valid_cols and v is not None})
     db.add(prop)
     db.commit()
     db.refresh(prop)

@@ -24,9 +24,21 @@ const EMPTY_FORM = {
   property_type: 'RESIDENTIAL',
   purchase_price: '', total_area_sqm: '', land_area_sqm: '',
   construction_year: '', floors: '', units: '',
+  purchase_date: '',
 };
 
 type FormData = typeof EMPTY_FORM;
+
+const TYPE_LABELS: Record<string, string> = {
+  RESIDENTIAL: 'Mehrfamilienhaus', OFFICE: 'Bürogebäude',
+  RETAIL: 'Einzelhandelsobjekt', INDUSTRIAL: 'Logistikimmobilie', MIXED: 'Mischnutzungsobjekt',
+};
+
+function buildAutoName(type: string, city: string, address: string): string {
+  const parts = [TYPE_LABELS[type] || 'Objekt', city].filter(Boolean);
+  if (address) parts.push(address);
+  return parts.join(', ');
+}
 
 function ReviewForm({
   initial,
@@ -42,6 +54,18 @@ function ReviewForm({
   onCancel: () => void;
 }) {
   const [form, setForm] = useState<FormData>({ ...EMPTY_FORM, ...initial });
+  const [nameManuallyEdited, setNameManuallyEdited] = useState(!!initial.name);
+
+  // Auto-update name when type/city/address change and user hasn't manually edited it
+  const setField = (patch: Partial<FormData>) => {
+    setForm(f => {
+      const next = { ...f, ...patch };
+      if (!nameManuallyEdited) {
+        next.name = buildAutoName(next.property_type, next.city, next.address);
+      }
+      return next;
+    });
+  };
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -91,12 +115,13 @@ function ReviewForm({
         <div className="col-span-2 sm:col-span-1">
           <label className={labelCls}>Objektname <span className="text-apple-red">*</span></label>
           <input required className={inputCls} placeholder="z.B. Bürogebäude München Nord"
-            value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+            value={form.name}
+            onChange={e => { setNameManuallyEdited(true); setForm(f => ({ ...f, name: e.target.value })); }} />
         </div>
         <div>
           <label className={labelCls}>Objekttyp</label>
           <select className={inputCls} value={form.property_type}
-            onChange={e => setForm(f => ({ ...f, property_type: e.target.value }))}>
+            onChange={e => setField({ property_type: e.target.value })}>
             {PROPERTY_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
           </select>
         </div>
@@ -107,17 +132,17 @@ function ReviewForm({
         <div className="col-span-3 sm:col-span-2">
           <label className={labelCls}>Straße &amp; Hausnummer</label>
           <input className={inputCls} placeholder="Musterstraße 1"
-            value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} />
+            value={form.address} onChange={e => setField({ address: e.target.value })} />
         </div>
         <div>
           <label className={labelCls}>PLZ</label>
           <input className={inputCls} placeholder="80331"
-            value={form.zip_code} onChange={e => setForm(f => ({ ...f, zip_code: e.target.value }))} />
+            value={form.zip_code} onChange={e => setField({ zip_code: e.target.value })} />
         </div>
         <div className="col-span-3">
           <label className={labelCls}>Stadt</label>
           <input className={inputCls} placeholder="München"
-            value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} />
+            value={form.city} onChange={e => setField({ city: e.target.value })} />
         </div>
       </div>
 
@@ -154,6 +179,11 @@ function ReviewForm({
           <label className={labelCls}>Einheiten</label>
           <input type="number" className={inputCls} placeholder="12"
             value={form.units} onChange={e => setForm(f => ({ ...f, units: e.target.value }))} />
+        </div>
+        <div>
+          <label className={labelCls}>Kaufdatum</label>
+          <input type="date" className={inputCls}
+            value={form.purchase_date} onChange={e => setForm(f => ({ ...f, purchase_date: e.target.value }))} />
         </div>
       </div>
 
@@ -223,55 +253,64 @@ export default function UploadPage() {
     }
   }, []);
 
+  const toPayload = (form: FormData) => ({
+    name: form.name,
+    address: form.address || undefined,
+    city: form.city || undefined,
+    zip_code: form.zip_code || undefined,
+    property_type: form.property_type,
+    purchase_price: form.purchase_price ? parseFloat(form.purchase_price) : undefined,
+    total_area_sqm: form.total_area_sqm ? parseFloat(form.total_area_sqm) : undefined,
+    land_area_sqm: form.land_area_sqm ? parseFloat(form.land_area_sqm) : undefined,
+    construction_year: form.construction_year ? parseInt(form.construction_year) : undefined,
+    floors: form.floors ? parseInt(form.floors) : undefined,
+    units: form.units ? parseInt(form.units) : undefined,
+    purchase_date: form.purchase_date || undefined,
+  });
+
   const handlePdfSave = async (form: FormData) => {
-    const property = await createProperty({
-      name: form.name,
-      address: form.address || undefined,
-      city: form.city || undefined,
-      zip_code: form.zip_code || undefined,
-      property_type: form.property_type,
-      purchase_price: form.purchase_price ? parseFloat(form.purchase_price) : undefined,
-      total_area_sqm: form.total_area_sqm ? parseFloat(form.total_area_sqm) : undefined,
-      land_area_sqm: form.land_area_sqm ? parseFloat(form.land_area_sqm) : undefined,
-      construction_year: form.construction_year ? parseInt(form.construction_year) : undefined,
-      floors: form.floors ? parseInt(form.floors) : undefined,
-      units: form.units ? parseInt(form.units) : undefined,
-    });
+    const property = await createProperty(toPayload(form));
     setPdfState('success');
     setTimeout(() => navigate(`/onboard/${property.id}`), 1200);
   };
 
   const handleManualSave = async (form: FormData) => {
-    const property = await createProperty({
-      name: form.name,
-      address: form.address || undefined,
-      city: form.city || undefined,
-      zip_code: form.zip_code || undefined,
-      property_type: form.property_type,
-      purchase_price: form.purchase_price ? parseFloat(form.purchase_price) : undefined,
-      total_area_sqm: form.total_area_sqm ? parseFloat(form.total_area_sqm) : undefined,
-      land_area_sqm: form.land_area_sqm ? parseFloat(form.land_area_sqm) : undefined,
-      construction_year: form.construction_year ? parseInt(form.construction_year) : undefined,
-      floors: form.floors ? parseInt(form.floors) : undefined,
-      units: form.units ? parseInt(form.units) : undefined,
-    });
+    const property = await createProperty(toPayload(form));
     setManualState('success');
     setTimeout(() => navigate(`/onboard/${property.id}`), 1200);
   };
 
+  // Auto-generate a property name from type + city + address
+  const autoName = (type: string, city: string, address: string): string => {
+    const typeLabel: Record<string, string> = {
+      RESIDENTIAL: 'Mehrfamilienhaus', OFFICE: 'Bürogebäude',
+      RETAIL: 'Einzelhandelsobjekt', INDUSTRIAL: 'Logistikimmobilie', MIXED: 'Mischnutzungsobjekt',
+    };
+    const parts = [typeLabel[type] || 'Objekt', city].filter(Boolean);
+    if (address) parts.push(address);
+    return parts.join(', ');
+  };
+
   // Map PDF extracted fields to form fields
-  const pdfToForm = (data: Record<string, unknown>): Partial<FormData> => ({
-    name: (data.property_name as string) || '',
-    address: (data.address as string) || '',
-    city: (data.city as string) || '',
-    zip_code: (data.zip_code as string) || '',
-    property_type: (data.property_type as string) || 'RESIDENTIAL',
-    purchase_price: data.purchase_price != null ? String(Math.round(data.purchase_price as number)) : '',
-    total_area_sqm: data.total_area != null ? String(data.total_area) : '',
-    construction_year: data.construction_year != null ? String(data.construction_year) : '',
-    floors: data.floors != null ? String(data.floors) : '',
-    units: data.units != null ? String(data.units) : '',
-  });
+  const pdfToForm = (data: Record<string, unknown>): Partial<FormData> => {
+    const city = (data.city as string) || '';
+    const address = (data.address as string) || '';
+    const type = (data.property_type as string) || 'RESIDENTIAL';
+    const extractedName = (data.property_name as string) || '';
+    return {
+      name: extractedName || autoName(type, city, address),
+      address,
+      city,
+      zip_code: (data.zip_code as string) || '',
+      property_type: type,
+      purchase_price: data.purchase_price != null ? String(Math.round(data.purchase_price as number)) : '',
+      total_area_sqm: data.total_area != null ? String(data.total_area) : '',
+      land_area_sqm: data.land_area != null ? String(data.land_area) : '',
+      construction_year: data.construction_year != null ? String(data.construction_year) : '',
+      floors: data.floors != null ? String(data.floors) : '',
+      units: data.units != null ? String(data.units) : '',
+    };
+  };
 
   const excelDz = useDropzone({
     onDrop: onDropExcel,

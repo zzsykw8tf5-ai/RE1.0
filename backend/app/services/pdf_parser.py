@@ -4,6 +4,14 @@ import re
 
 PDFPLUMBER_AVAILABLE = False
 
+# Context words that mark an AGENT/PROVIDER section — addresses near these are NOT the object address
+_PROVIDER_WORDS = [
+    "makler", "anbieter", "ansprechpartner", "kontakt", "unser büro",
+    "vermittler", "verkäufer", "berater", "immobilienbüro", "franchise",
+    "telefon:", "tel.:", "fax:", "e-mail:", "email:", "impressum",
+    "datenschutz", "agb", "öffnungszeiten",
+]
+
 # Words that indicate navigation/header text, not property data
 _SKIP_WORDS = [
     "inserieren", "makler", "eigentümer:innen", "eigentümer", "suchende",
@@ -124,33 +132,62 @@ _STREET_WORD = (
 )
 
 
+def _is_near_provider_context(text: str, match_start: int) -> bool:
+    """Return True if the match position is near provider/agent context words."""
+    context_window = 300  # chars before the match
+    before = text[max(0, match_start - context_window):match_start].lower()
+    return any(word in before for word in _PROVIDER_WORDS)
+
+
 def _find_full_address(text: str) -> tuple[str | None, str | None, str | None]:
-    """Find (street, zip, city) all in one combined pattern."""
-    # Forward: Musterstraße 12[a], 30179 Hannover
-    m = re.search(
+    """Find (street, zip, city) all in one combined pattern.
+    Searches primarily in the first 60% of the document to avoid picking up
+    the real estate agent's contact address at the end.
+    """
+    # Search first in the first 60% of the document, then fall back to full text
+    cutoff = int(len(text) * 0.6)
+    search_areas = [text[:cutoff], text] if cutoff < len(text) else [text]
+
+    forward_pat = re.compile(
         r'(' + _STREET_WORD + r'\s*(?:' + _STREET_SUFFIXES + r')\s*\d+\s*[a-zA-Z]?)'
         r'\s*[,\n]\s*(\d{5})\s+([A-ZÄÖÜ][a-zäöüßA-ZÄÖÜ][a-zäöüß\s\-]*)',
-        text, re.IGNORECASE,
+        re.IGNORECASE,
     )
-    if m:
-        street = m.group(1).strip().rstrip(',')
-        zip_code = m.group(2)
-        city = m.group(3).strip().rstrip(',. ')
-        city = ' '.join(city.split()[:3])
-        return street, zip_code, city
-
-    # Reverse: 30179 Hannover, Musterstraße 12
-    m = re.search(
+    reverse_pat = re.compile(
         r'(\d{5})\s+([A-ZÄÖÜ][a-zäöüßA-ZÄÖÜ][a-zäöüß\s\-]*?)\s*[,\n]\s*'
         r'(' + _STREET_WORD + r'\s*(?:' + _STREET_SUFFIXES + r')\s*\d+\s*[a-zA-Z]?)',
-        text, re.IGNORECASE,
+        re.IGNORECASE,
     )
+    # Explicit object-label patterns (highest priority, search full text)
+    labeled_pat = re.compile(
+        r'(?:Objektadresse|Adresse\s*des\s*Objekts?|Objekt(?:standort)?)\s*[:\s]\s*'
+        r'(' + _STREET_WORD + r'\s*(?:' + _STREET_SUFFIXES + r')[^\n]{0,20})',
+        re.IGNORECASE,
+    )
+
+    # 1) Try explicit label anywhere in document
+    m = labeled_pat.search(text)
     if m:
-        zip_code = m.group(1)
-        city = m.group(2).strip().rstrip(',. ')
-        city = ' '.join(city.split()[:3])
-        street = m.group(3).strip().rstrip(',')
-        return street, zip_code, city
+        street_raw = m.group(1).strip().rstrip(',')
+        zip_m = re.search(r'(\d{5})\s+([A-ZÄÖÜ][a-zäöüßA-ZÄÖÜ][a-zäöüß\s\-]+)', text[m.start():m.start()+200])
+        if zip_m:
+            return street_raw, zip_m.group(1), ' '.join(zip_m.group(2).strip().split()[:3])
+
+    # 2) Forward / reverse pattern, prefer first half of document
+    for search_text in search_areas:
+        for pat, is_forward in [(forward_pat, True), (reverse_pat, False)]:
+            for m in pat.finditer(search_text):
+                if _is_near_provider_context(search_text, m.start()):
+                    continue
+                if is_forward:
+                    street = m.group(1).strip().rstrip(',')
+                    zip_code = m.group(2)
+                    city = ' '.join(m.group(3).strip().rstrip(',. ').split()[:3])
+                else:
+                    zip_code = m.group(1)
+                    city = ' '.join(m.group(2).strip().rstrip(',. ').split()[:3])
+                    street = m.group(3).strip().rstrip(',')
+                return street, zip_code, city
 
     return None, None, None
 
@@ -187,23 +224,26 @@ def _find_street(text: str) -> str | None:
             if 3 < len(val) < 80:
                 return val
 
-    # Street followed by house number
-    pattern = (
-        r'(' + _STREET_WORD + r'\s*(?:' + _STREET_SUFFIXES + r')\s*\d+\s*[a-zA-Z]?)'
+    # Street followed by house number — search first 60% only to avoid agent address
+    cutoff = int(len(text) * 0.6)
+    search_text = text[:cutoff] if cutoff > 100 else text
+
+    pattern = re.compile(
+        r'(' + _STREET_WORD + r'\s*(?:' + _STREET_SUFFIXES + r')\s*\d+\s*[a-zA-Z]?)',
+        re.IGNORECASE,
     )
-    m = re.search(pattern, text, re.IGNORECASE)
-    if m:
+    for m in pattern.finditer(search_text):
+        if _is_near_provider_context(search_text, m.start()):
+            continue
         val = m.group(1).strip().rstrip(',')
         val = re.sub(r'\s*\d{5}\s+\S.*$', '', val).strip()
         if 3 < len(val) < 80:
             return val
 
     # Street without number (fallback)
-    m = re.search(
-        r'(' + _STREET_WORD + r'\s*(?:' + _STREET_SUFFIXES + r'))',
-        text, re.IGNORECASE,
-    )
-    if m:
+    for m in re.finditer(r'(' + _STREET_WORD + r'\s*(?:' + _STREET_SUFFIXES + r'))', search_text, re.IGNORECASE):
+        if _is_near_provider_context(search_text, m.start()):
+            continue
         val = m.group(1).strip().rstrip(',')
         if 3 < len(val) < 80:
             return val
@@ -242,7 +282,24 @@ def _find_property_name(text: str) -> str | None:
     return None
 
 
-def _find_property_type(text: str) -> str:
+def _find_land_area(text: str) -> float | None:
+    """Find Grundstücksfläche (land / plot area) in m²."""
+    for pattern in [
+        r'Grundst[üu]cksgr[öo][ß s]e\s*(?:ca\.?)?\s*[:\s]\s*([0-9]+(?:[.,][0-9]+)?)\s*m[²2]',
+        r'Grundst[üu]cksfl[äa]che\s*(?:ca\.?)?\s*[:\s]\s*([0-9]+(?:[.,][0-9]+)?)\s*m[²2]',
+        r'Grundst[üu]ck\s*(?:ca\.?)?\s*[:\s]\s*([0-9]+(?:[.,][0-9]+)?)\s*m[²2]',
+        r'Liegenschaft(?:sfläche)?\s*[:\s]\s*([0-9]+(?:[.,][0-9]+)?)\s*m[²2]',
+        r'Grundst[üu]ck(?:sgröße|sfläche)\D{0,6}([0-9]+(?:[.,][0-9]+)?)\s*m[²2]',
+    ]:
+        m = re.search(pattern, text, re.IGNORECASE)
+        if m:
+            try:
+                v = float(m.group(1).replace('.', '').replace(',', '.'))
+                if 10 < v < 10_000_000:
+                    return v
+            except ValueError:
+                continue
+    return None
     t = text.lower()
     scores: dict[str, int] = {
         "OFFICE": 0, "RETAIL": 0, "RESIDENTIAL": 0, "INDUSTRIAL": 0, "MIXED": 0,
@@ -340,6 +397,7 @@ def parse_pdf(file_bytes: bytes) -> dict:
         "zip_code": zip_code,
         "property_type": _find_property_type(text),
         "total_area": _find_area(text),
+        "land_area": _find_land_area(text),
         "purchase_price": _find_price(text),
         "construction_year": _find_construction_year(text),
         "units": _find_units(text),
