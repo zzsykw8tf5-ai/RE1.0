@@ -56,6 +56,23 @@ export const uploadPDF = (file: File): Promise<Record<string, unknown>> => {
 export const importFromImmoscout = (url: string): Promise<Property> =>
   api.post('/api/upload/immoscout', { url }).then(r => r.data);
 
+// ---- Market data ----
+export const getMarketData = (params: {
+  city: string; property_type?: string; area_sqm?: number;
+  purchase_price?: number; construction_year?: number;
+}): Promise<Record<string, unknown>> =>
+  api.get('/api/market-data', { params }).then(r => r.data);
+
+// ---- Tenant management ----
+export const addTenant = (propertyId: number, data: {
+  name: string; unit?: string; area_sqm?: number; monthly_rent?: number;
+  lease_start?: string; lease_end?: string; tenant_type?: string; creditworthiness?: string;
+}): Promise<import('../types').Tenant> =>
+  api.post(`/api/properties/${propertyId}/tenants`, data).then(r => r.data);
+
+export const deleteTenant = (propertyId: number, tenantId: number): Promise<void> =>
+  api.delete(`/api/properties/${propertyId}/tenants/${tenantId}`).then(r => r.data);
+
 export const createProperty = (data: {
   name: string; address?: string; city?: string; zip_code?: string;
   property_type?: string; construction_year?: number; total_area_sqm?: number;

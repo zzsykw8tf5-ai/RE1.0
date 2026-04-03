@@ -1,0 +1,598 @@
+import { useState, useEffect, useCallback } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import {
+  ChevronRight, ChevronLeft, Plus, Trash2,
+  TrendingUp, Info, CheckCircle2, AlertCircle, Building2,
+} from 'lucide-react';
+import TopBar from '../components/Layout/TopBar';
+import LoadingSpinner from '../components/ui/LoadingSpinner';
+import { getProperty, getMarketData, addTenant, deleteTenant } from '../services/api';
+import type { Property, Tenant } from '../types';
+
+// ── Types ──────────────────────────────────────────────────────────────────────
+
+interface MarketData {
+  city: string;
+  market_tier: string;
+  property_type: string;
+  area_sqm: number;
+  market_rent: {
+    min_per_sqm: number; avg_per_sqm: number; max_per_sqm: number; prime_per_sqm: number;
+    annual_at_min: number; annual_at_avg: number; annual_at_max: number;
+    unit: string;
+  };
+  bodenrichtwert: { wohn_avg: number; gewerbe_avg: number; unit: string; note: string };
+  cap_rate: { min: number; avg: number; max: number; implied: number | null };
+  multiplier: { min: number; avg: number; max: number; implied: number };
+  vacancy_rate_typical: number;
+  cost_defaults: {
+    vacancy_rate: number;
+    verwaltung_pct: number;
+    instandhaltung_per_sqm: number;
+    instandhaltung_annual: number;
+    versicherung_per_sqm: number;
+    versicherung_annual: number;
+    sonstige_pct: number;
+    nicht_umlagefaehig_pct: number;
+    note: string;
+  };
+  data_sources: string;
+}
+
+interface TenantRow {
+  id?: number;       // set after save
+  name: string;
+  unit: string;
+  area_sqm: string;
+  monthly_rent: string;
+  lease_start: string;
+  lease_end: string;
+  tenant_type: string;
+  creditworthiness: string;
+  saved: boolean;
+  saving: boolean;
+  error: string;
+}
+
+interface CostRow {
+  label: string;
+  key: string;
+  value: number;
+  unit: '€/Jahr' | '% Rohertrag' | '€/m²/Jahr';
+  editable: boolean;
+  note?: string;
+}
+
+const emptyTenant = (): TenantRow => ({
+  name: '', unit: '', area_sqm: '', monthly_rent: '',
+  lease_start: '', lease_end: '',
+  tenant_type: 'STANDARD', creditworthiness: 'B',
+  saved: false, saving: false, error: '',
+});
+
+const TENANT_TYPES = ['ANCHOR', 'STANDARD', 'SMALL'];
+const CRED = ['A', 'B', 'C'];
+const fmt = (n: number) => new Intl.NumberFormat('de-DE').format(Math.round(n));
+const fmtEur = (n: number) => `${fmt(n)} €`;
+
+// ── Step indicator ──────────────────────────────────────────────────────────────
+
+function Steps({ current }: { current: number }) {
+  const steps = ['Mieterliste', 'Bewirtschaftungskosten'];
+  return (
+    <div className="flex items-center gap-0 mb-8">
+      {steps.map((label, i) => (
+        <div key={label} className="flex items-center">
+          <div className={`flex items-center gap-2 px-4 py-2 rounded-apple text-sm font-medium transition-all ${
+            i === current ? 'bg-apple-blue text-white' :
+            i < current  ? 'bg-green-100 text-green-700' :
+                           'bg-apple-gray-2 text-apple-text-tertiary'
+          }`}>
+            {i < current
+              ? <CheckCircle2 size={14} />
+              : <span className="w-4 h-4 rounded-full border-2 border-current flex items-center justify-center text-xs">{i + 1}</span>
+            }
+            {label}
+          </div>
+          {i < steps.length - 1 && <div className="w-6 h-px bg-apple-gray-3 mx-1" />}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Market rent badge ─────────────────────────────────────────────────────────
+
+function MarketBadge({ market }: { market: MarketData }) {
+  const r = market.market_rent;
+  return (
+    <div className="bg-blue-50 border border-blue-200 rounded-apple p-4 mb-6">
+      <div className="flex items-start gap-2">
+        <TrendingUp size={15} className="text-apple-blue mt-0.5 flex-shrink-0" />
+        <div className="flex-1">
+          <div className="text-xs font-semibold text-apple-blue mb-1">
+            Marktmiete {market.city.charAt(0).toUpperCase() + market.city.slice(1)} · {market.property_type} · {market.market_tier}-Lage
+          </div>
+          <div className="flex flex-wrap gap-4 text-xs text-apple-text-secondary">
+            <span><span className="font-medium text-apple-text">{r.min_per_sqm}–{r.max_per_sqm} €</span>/m²/Monat</span>
+            <span>Ø <span className="font-medium text-apple-text">{r.avg_per_sqm} €/m²</span></span>
+            <span>Jahresmiete Ø <span className="font-medium text-apple-text">{fmtEur(r.annual_at_avg)}</span></span>
+          </div>
+          <div className="text-[10px] text-apple-text-tertiary mt-1">{market.data_sources}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Step 1: Mieterliste ───────────────────────────────────────────────────────
+
+function TenantStep({
+  property, market, savedTenants, onTenantAdded, onTenantDeleted, onNext,
+}: {
+  property: Property;
+  market: MarketData | null;
+  savedTenants: Tenant[];
+  onTenantAdded: (t: Tenant) => void;
+  onTenantDeleted: (id: number) => void;
+  onNext: () => void;
+}) {
+  const [rows, setRows] = useState<TenantRow[]>([emptyTenant()]);
+
+  const totalAnnualRent = savedTenants.reduce((s, t) => s + (t.annual_rent || 0), 0);
+  const totalArea = savedTenants.reduce((s, t) => s + (t.area_sqm || 0), 0);
+  const occupancyPct = property.total_area_sqm > 0 ? (totalArea / property.total_area_sqm) * 100 : 0;
+
+  const updateRow = (i: number, patch: Partial<TenantRow>) =>
+    setRows(rs => rs.map((r, idx) => idx === i ? { ...r, ...patch } : r));
+
+  const suggestRent = useCallback((areaStr: string): string => {
+    if (!market || !areaStr) return '';
+    const area = parseFloat(areaStr);
+    if (isNaN(area) || area <= 0) return '';
+    return String(Math.round(market.market_rent.avg_per_sqm * area));
+  }, [market]);
+
+  const handleAreaBlur = (i: number, val: string) => {
+    const row = rows[i];
+    if (!row.monthly_rent && val) {
+      const suggested = suggestRent(val);
+      if (suggested) updateRow(i, { monthly_rent: suggested });
+    }
+  };
+
+  const handleSave = async (i: number) => {
+    const row = rows[i];
+    if (!row.name.trim()) return;
+    updateRow(i, { saving: true, error: '' });
+    try {
+      const tenant = await addTenant(property.id, {
+        name: row.name,
+        unit: row.unit || undefined,
+        area_sqm: row.area_sqm ? parseFloat(row.area_sqm) : undefined,
+        monthly_rent: row.monthly_rent ? parseFloat(row.monthly_rent) : undefined,
+        lease_start: row.lease_start || undefined,
+        lease_end: row.lease_end || undefined,
+        tenant_type: row.tenant_type,
+        creditworthiness: row.creditworthiness,
+      });
+      updateRow(i, { saved: true, saving: false, id: tenant.id });
+      onTenantAdded(tenant);
+    } catch {
+      updateRow(i, { saving: false, error: 'Speichern fehlgeschlagen' });
+    }
+  };
+
+  const handleDelete = async (tenantId: number, rowIdx: number) => {
+    await deleteTenant(property.id, tenantId);
+    setRows(rs => rs.filter((_, i) => i !== rowIdx));
+    onTenantDeleted(tenantId);
+  };
+
+  const addFullOccupancy = async () => {
+    if (!market) return;
+    const area = property.total_area_sqm || 1000;
+    const monthly = Math.round(market.market_rent.avg_per_sqm * area);
+    const tenant = await addTenant(property.id, {
+      name: 'Vollvermietung (Marktmiete)',
+      area_sqm: area,
+      monthly_rent: monthly,
+      tenant_type: 'STANDARD',
+      creditworthiness: 'B',
+    });
+    onTenantAdded(tenant);
+    setRows(rs => [
+      ...rs,
+      { ...emptyTenant(), saved: true, id: tenant.id,
+        name: 'Vollvermietung (Marktmiete)',
+        area_sqm: String(area), monthly_rent: String(monthly) },
+    ]);
+  };
+
+  const inputCls = 'w-full px-2 py-1.5 rounded border border-apple-gray-3 text-xs focus:outline-none focus:border-apple-blue bg-white';
+
+  return (
+    <div>
+      {market && <MarketBadge market={market} />}
+
+      {/* Summary bar */}
+      {savedTenants.length > 0 && (
+        <div className="flex flex-wrap gap-4 mb-4 p-3 bg-apple-gray-1 rounded-apple text-xs">
+          <span><span className="font-semibold">{savedTenants.length}</span> Mieter</span>
+          <span>Gesamtfläche vermietet: <span className="font-semibold">{fmt(totalArea)} m²</span></span>
+          <span>Vermietungsstand: <span className={`font-semibold ${occupancyPct >= 90 ? 'text-apple-green' : occupancyPct >= 70 ? 'text-yellow-600' : 'text-apple-red'}`}>{Math.round(occupancyPct)} %</span></span>
+          <span>Jahresmiete (IST): <span className="font-semibold text-apple-blue">{fmtEur(totalAnnualRent)}</span></span>
+        </div>
+      )}
+
+      {/* Tenant rows */}
+      <div className="space-y-3 mb-4">
+        {rows.map((row, i) => (
+          <div key={i} className={`border rounded-apple p-3 ${row.saved ? 'border-green-200 bg-green-50/30' : 'border-apple-gray-3 bg-white'}`}>
+            {row.saved ? (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm">
+                  <CheckCircle2 size={14} className="text-apple-green" />
+                  <span className="font-medium">{row.name}</span>
+                  {row.area_sqm && <span className="text-apple-text-secondary">{row.area_sqm} m²</span>}
+                  {row.monthly_rent && <span className="text-apple-blue font-medium">{fmtEur(parseFloat(row.monthly_rent))}/Monat</span>}
+                </div>
+                {row.id && (
+                  <button onClick={() => handleDelete(row.id!, i)} className="text-apple-text-tertiary hover:text-apple-red transition-colors">
+                    <Trash2 size={13} />
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="col-span-2 sm:col-span-1">
+                  <label className="block text-[10px] text-apple-text-secondary mb-0.5">Mieter *</label>
+                  <input className={inputCls} placeholder="Musterfirma GmbH" value={row.name}
+                    onChange={e => updateRow(i, { name: e.target.value })} />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-apple-text-secondary mb-0.5">Einheit</label>
+                  <input className={inputCls} placeholder="EG-01" value={row.unit}
+                    onChange={e => updateRow(i, { unit: e.target.value })} />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-apple-text-secondary mb-0.5">Fläche m²</label>
+                  <input type="number" className={inputCls} placeholder="500" value={row.area_sqm}
+                    onChange={e => updateRow(i, { area_sqm: e.target.value })}
+                    onBlur={e => handleAreaBlur(i, e.target.value)} />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-apple-text-secondary mb-0.5">
+                    Kaltmiete/Monat €
+                    {market && row.area_sqm && (
+                      <button className="ml-1 text-apple-blue underline" onClick={() => updateRow(i, { monthly_rent: suggestRent(row.area_sqm) })}>
+                        Ø {market.market_rent.avg_per_sqm} €/m²
+                      </button>
+                    )}
+                  </label>
+                  <input type="number" className={inputCls} placeholder="8.500" value={row.monthly_rent}
+                    onChange={e => updateRow(i, { monthly_rent: e.target.value })} />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-apple-text-secondary mb-0.5">Mietbeginn</label>
+                  <input type="date" className={inputCls} value={row.lease_start}
+                    onChange={e => updateRow(i, { lease_start: e.target.value })} />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-apple-text-secondary mb-0.5">Mietende</label>
+                  <input type="date" className={inputCls} value={row.lease_end}
+                    onChange={e => updateRow(i, { lease_end: e.target.value })} />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-apple-text-secondary mb-0.5">Mietertyp</label>
+                  <select className={inputCls} value={row.tenant_type}
+                    onChange={e => updateRow(i, { tenant_type: e.target.value })}>
+                    {TENANT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] text-apple-text-secondary mb-0.5">Bonität</label>
+                  <select className={inputCls} value={row.creditworthiness}
+                    onChange={e => updateRow(i, { creditworthiness: e.target.value })}>
+                    {CRED.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div className="col-span-2 sm:col-span-4 flex items-center gap-2 pt-1">
+                  <button disabled={!row.name.trim() || row.saving} onClick={() => handleSave(i)}
+                    className="btn-primary text-xs flex items-center gap-1.5 disabled:opacity-50">
+                    {row.saving ? <LoadingSpinner /> : <CheckCircle2 size={12} />}
+                    Mieter speichern
+                  </button>
+                  {row.error && <span className="text-xs text-apple-red">{row.error}</span>}
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Action buttons */}
+      <div className="flex flex-wrap gap-2 mb-8">
+        <button onClick={() => setRows(rs => [...rs, emptyTenant()])}
+          className="btn-secondary text-xs flex items-center gap-1.5">
+          <Plus size={12} /> Weiteren Mieter hinzufügen
+        </button>
+        {market && savedTenants.length === 0 && (
+          <button onClick={addFullOccupancy}
+            className="btn-ghost text-xs flex items-center gap-1.5 text-apple-blue">
+            <TrendingUp size={12} /> Vollvermietung zu Marktmiete annehmen
+          </button>
+        )}
+      </div>
+
+      <div className="flex justify-between">
+        <span className="text-xs text-apple-text-tertiary pt-2">
+          {savedTenants.length === 0 ? 'Ohne Mieter wird mit Marktmiete gerechnet.' : ''}
+        </span>
+        <button onClick={onNext} className="btn-primary flex items-center gap-2">
+          Weiter zu Bewirtschaftungskosten <ChevronRight size={14} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Step 2: Bewirtschaftungskosten ────────────────────────────────────────────
+
+function CostStep({
+  property, market, onBack, onFinish,
+}: {
+  property: Property;
+  market: MarketData | null;
+  onBack: () => void;
+  onFinish: () => void;
+}) {
+  const area = property.total_area_sqm || 1000;
+  const cd = market?.cost_defaults;
+
+  const [costs, setCosts] = useState<CostRow[]>(() => [
+    {
+      label: 'Leerstandsrate (Mietausfall)',
+      key: 'vacancy',
+      value: cd ? Math.round(cd.vacancy_rate * 100 * 10) / 10 : 6.0,
+      unit: '% Rohertrag',
+      editable: true,
+      note: cd?.note || 'Standortüblicher Leerstand',
+    },
+    {
+      label: 'Verwaltungskosten',
+      key: 'verwaltung',
+      value: cd ? Math.round(cd.verwaltung_pct * 100 * 10) / 10 : 3.0,
+      unit: '% Rohertrag',
+      editable: true,
+      note: 'Hausverwaltung, Buchführung (gem. II. BV)',
+    },
+    {
+      label: 'Instandhaltung / Capex',
+      key: 'instandhaltung',
+      value: cd ? cd.instandhaltung_per_sqm : 12.0,
+      unit: '€/m²/Jahr',
+      editable: true,
+      note: `Gebäudealter berücksichtigt · ${cd ? fmtEur(cd.instandhaltung_annual) : '–'}/Jahr`,
+    },
+    {
+      label: 'Gebäudeversicherung',
+      key: 'versicherung',
+      value: cd ? cd.versicherung_per_sqm : 0.5,
+      unit: '€/m²/Jahr',
+      editable: true,
+      note: cd ? `≈ ${fmtEur(cd.versicherung_annual)}/Jahr` : '',
+    },
+    {
+      label: 'Sonstige nicht-umlagefähige Kosten',
+      key: 'sonstige',
+      value: cd ? Math.round(cd.sonstige_pct * 100 * 10) / 10 : 2.0,
+      unit: '% Rohertrag',
+      editable: true,
+      note: 'Grundsteuer-Anteil, Bankgebühren etc.',
+    },
+  ]);
+
+  const update = (key: string, val: number) =>
+    setCosts(cs => cs.map(c => c.key === key ? { ...c, value: val } : c));
+
+  // Compute summary
+  const vacancyPct = costs.find(c => c.key === 'vacancy')?.value ?? 6;
+  const verwaltungPct = costs.find(c => c.key === 'verwaltung')?.value ?? 3;
+  const instandhaltung = costs.find(c => c.key === 'instandhaltung')?.value ?? 12;
+  const versicherung = costs.find(c => c.key === 'versicherung')?.value ?? 0.5;
+  const sonstigePct = costs.find(c => c.key === 'sonstige')?.value ?? 2;
+
+  const grossRent = market?.market_rent.annual_at_avg ?? 0;
+  const vacancyEur   = grossRent * (vacancyPct / 100);
+  const verwaltungEur = grossRent * (verwaltungPct / 100);
+  const instandEur   = instandhaltung * area;
+  const versichEur   = versicherung * area;
+  const sonstigeEur  = grossRent * (sonstigePct / 100);
+  const totalBewirt  = vacancyEur + verwaltungEur + instandEur + versichEur + sonstigeEur;
+  const noi           = Math.max(0, grossRent - totalBewirt);
+  const noiYield      = property.purchase_price ? (noi / property.purchase_price) * 100 : 0;
+  const mult          = noi > 0 && property.purchase_price ? property.purchase_price / noi : null;
+
+  return (
+    <div>
+      {market && (
+        <div className="bg-blue-50 border border-blue-200 rounded-apple p-4 mb-6 text-xs text-apple-text-secondary">
+          <div className="flex items-start gap-2">
+            <Info size={14} className="text-apple-blue mt-0.5 flex-shrink-0" />
+            <div>
+              <span className="font-semibold text-apple-blue">Smart Defaults für {property.city || 'diesen Standort'}</span>
+              {' – '}basierend auf Marktdaten ({market.market_tier}-Lage, {market.property_type}).
+              Passe die Werte an dein Objekt an.
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-3 mb-6">
+        {costs.map(cost => (
+          <div key={cost.key} className="flex items-center gap-4 p-3 border border-apple-gray-2 rounded-apple bg-white">
+            <div className="flex-1">
+              <div className="text-sm font-medium text-apple-text">{cost.label}</div>
+              {cost.note && <div className="text-xs text-apple-text-tertiary">{cost.note}</div>}
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                className="w-20 px-2 py-1.5 rounded border border-apple-gray-3 text-sm text-right focus:outline-none focus:border-apple-blue"
+                value={cost.value}
+                onChange={e => update(cost.key, parseFloat(e.target.value) || 0)}
+              />
+              <span className="text-xs text-apple-text-tertiary w-20">{cost.unit}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* NOI Summary */}
+      {grossRent > 0 && (
+        <div className="p-4 bg-apple-gray-1 rounded-apple-lg mb-8">
+          <div className="text-sm font-semibold text-apple-text mb-3">Überschlagsrechnung (Marktmiete)</div>
+          <div className="space-y-1.5 text-xs">
+            <div className="flex justify-between">
+              <span className="text-apple-text-secondary">Jahres-Rohertrag (Markt)</span>
+              <span className="font-medium">{fmtEur(grossRent)}</span>
+            </div>
+            <div className="flex justify-between text-apple-red">
+              <span>./. Bewirtschaftungskosten ges.</span>
+              <span>– {fmtEur(totalBewirt)}</span>
+            </div>
+            <div className="flex justify-between font-semibold border-t border-apple-gray-3 pt-1.5 mt-1.5">
+              <span>= NOI (Nettobetriebsergebnis)</span>
+              <span className="text-apple-green">{fmtEur(noi)}</span>
+            </div>
+            <div className="flex justify-between text-apple-text-secondary">
+              <span>Ist-Rendite (NOI / Kaufpreis)</span>
+              <span className={noiYield > 0 ? (noiYield >= 4.5 ? 'text-apple-green' : 'text-yellow-600') : ''}>
+                {property.purchase_price ? `${noiYield.toFixed(2)} %` : '– kein Kaufpreis'}
+              </span>
+            </div>
+            {mult && (
+              <div className="flex justify-between text-apple-text-secondary">
+                <span>Vervielfältiger (Kaufpreis / NOI)</span>
+                <span>{mult.toFixed(1)}x</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="flex justify-between">
+        <button onClick={onBack} className="btn-ghost flex items-center gap-2">
+          <ChevronLeft size={14} /> Zurück
+        </button>
+        <button onClick={onFinish} className="btn-primary flex items-center gap-2">
+          <Building2 size={14} /> Zur Objektanalyse
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+
+export default function OnboardingPage() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const [step, setStep] = useState(0);
+  const [property, setProperty] = useState<Property | null>(null);
+  const [market, setMarket] = useState<MarketData | null>(null);
+  const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!id) return;
+    (async () => {
+      try {
+        const prop = await getProperty(Number(id));
+        setProperty(prop);
+        setTenants(prop.tenants || []);
+        if (prop.city) {
+          try {
+            const md = await getMarketData({
+              city: prop.city,
+              property_type: prop.property_type || 'OFFICE',
+              area_sqm: prop.total_area_sqm,
+              purchase_price: prop.purchase_price,
+              construction_year: prop.construction_year,
+            });
+            setMarket(md as unknown as MarketData);
+          } catch {
+            // Market data is optional – continue without it
+          }
+        }
+      } catch {
+        setError('Objekt konnte nicht geladen werden.');
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [id]);
+
+  if (loading) return <div className="flex h-full items-center justify-center"><LoadingSpinner label="Wird geladen..." /></div>;
+  if (error || !property) return (
+    <div className="flex h-full items-center justify-center">
+      <div className="text-center">
+        <AlertCircle size={40} className="text-apple-red mx-auto mb-3" />
+        <div className="text-sm text-apple-text-secondary">{error || 'Objekt nicht gefunden.'}</div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div>
+      <TopBar
+        title={property.name}
+        subtitle={`Onboarding · ${property.city || ''}${property.city && property.property_type ? ' · ' : ''}${property.property_type || ''}`}
+        actions={
+          <button onClick={() => navigate(`/property/${property.id}`)} className="btn-ghost text-xs">
+            Überspringen
+          </button>
+        }
+      />
+      <div className="p-8 max-w-4xl mx-auto">
+        <Steps current={step} />
+
+        {step === 0 && (
+          <div className="card-lg">
+            <h2 className="section-title mb-1">Mieterliste</h2>
+            <p className="text-sm text-apple-text-secondary mb-6">
+              Erfasse alle Mieter des Objekts. Die Marktmiete wird automatisch als Vorschlag eingetragen.
+            </p>
+            <TenantStep
+              property={property}
+              market={market}
+              savedTenants={tenants}
+              onTenantAdded={t => setTenants(ts => [...ts, t])}
+              onTenantDeleted={id => setTenants(ts => ts.filter(t => t.id !== id))}
+              onNext={() => setStep(1)}
+            />
+          </div>
+        )}
+
+        {step === 1 && (
+          <div className="card-lg">
+            <h2 className="section-title mb-1">Bewirtschaftungskosten</h2>
+            <p className="text-sm text-apple-text-secondary mb-6">
+              Nicht-umlagefähige Kosten nach II. BV – vorausgefüllt mit Markt-Richtwerten für {property.city || 'diesen Standort'}.
+            </p>
+            <CostStep
+              property={property}
+              market={market}
+              onBack={() => setStep(0)}
+              onFinish={() => navigate(`/property/${property.id}`)}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

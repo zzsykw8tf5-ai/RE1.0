@@ -199,7 +199,7 @@ export default function UploadPage() {
     try {
       const property = await uploadExcel(file);
       setExcelState('success');
-      setTimeout(() => navigate(`/property/${property.id}`), 1500);
+      setTimeout(() => navigate(`/onboard/${property.id}`), 1500);
     } catch (err: unknown) {
       const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
       setExcelError(detail || (err instanceof Error ? err.message : 'Upload fehlgeschlagen'));
@@ -238,7 +238,7 @@ export default function UploadPage() {
       units: form.units ? parseInt(form.units) : undefined,
     });
     setPdfState('success');
-    setTimeout(() => navigate(`/property/${property.id}`), 1200);
+    setTimeout(() => navigate(`/onboard/${property.id}`), 1200);
   };
 
   const handleManualSave = async (form: FormData) => {
@@ -256,7 +256,7 @@ export default function UploadPage() {
       units: form.units ? parseInt(form.units) : undefined,
     });
     setManualState('success');
-    setTimeout(() => navigate(`/property/${property.id}`), 1200);
+    setTimeout(() => navigate(`/onboard/${property.id}`), 1200);
   };
 
   // Map PDF extracted fields to form fields
