@@ -1,7 +1,11 @@
 """Upload and property management API."""
 import io
+import json
+import re
+import httpx
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import List
 
@@ -34,6 +38,21 @@ def _tenant_dict(t: Tenant) -> dict:
     return d
 
 
+def _map_immoscout_type(type_str: str) -> str:
+    t = type_str.lower()
+    if any(x in t for x in ["wohnung", "apartment", "etage", "residential"]):
+        return "RESIDENTIAL"
+    if any(x in t for x in ["büro", "office", "gewerbe", "commercial"]):
+        return "OFFICE"
+    if any(x in t for x in ["einzelhandel", "retail", "laden", "shop"]):
+        return "RETAIL"
+    if any(x in t for x in ["industrie", "lager", "logistik", "industrial"]):
+        return "INDUSTRIAL"
+    if any(x in t for x in ["gemischt", "mixed"]):
+        return "MIXED"
+    return "RESIDENTIAL"
+
+
 @router.post("/upload/excel")
 async def upload_excel(file: UploadFile = File(...), db: Session = Depends(get_db)):
     """Parse an Excel file and store the property + tenants."""
@@ -44,12 +63,10 @@ async def upload_excel(file: UploadFile = File(...), db: Session = Depends(get_d
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Excel parsing error: {e}")
 
-    # Create property
     prop = Property(**{k: v for k, v in prop_data.items() if k in Property.__table__.columns.keys()})
     db.add(prop)
     db.flush()
 
-    # Create tenants
     for td in tenant_data:
         td["property_id"] = prop.id
         t = Tenant(**{k: v for k, v in td.items() if k in Tenant.__table__.columns.keys()})
@@ -72,6 +89,132 @@ async def upload_pdf(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"PDF parsing error: {e}")
     return data
+
+
+class ImmoScoutRequest(BaseModel):
+    url: str
+
+
+@router.post("/upload/immoscout")
+async def import_from_immoscout(req: ImmoScoutRequest, db: Session = Depends(get_db)):
+    """Fetch an ImmoScout24 listing URL and create a property from it."""
+    url = req.url.strip()
+    if "immoscout24.de" not in url:
+        raise HTTPException(status_code=400, detail="Bitte einen gültigen ImmoScout24-Link einfügen (immoscout24.de/expose/...)")
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br",
+        "DNT": "1",
+        "Upgrade-Insecure-Requests": "1",
+    }
+
+    try:
+        async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=20) as client:
+            resp = await client.get(url)
+            if resp.status_code == 403:
+                raise HTTPException(status_code=403, detail="ImmoScout24 blockiert automatische Anfragen. Bitte nutze den manuellen Import.")
+            if resp.status_code != 200:
+                raise HTTPException(status_code=502, detail=f"ImmoScout24 antwortete mit Status {resp.status_code}")
+            html = resp.text
+    except HTTPException:
+        raise
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Zeitüberschreitung. ImmoScout24 hat nicht geantwortet.")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Verbindungsfehler: {str(e)}")
+
+    property_data: dict = {}
+
+    # 1) Try __NEXT_DATA__ JSON (Next.js)
+    next_match = re.search(
+        r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
+        html, re.DOTALL
+    )
+    if next_match:
+        try:
+            nd = json.loads(next_match.group(1))
+            page_props = nd.get("props", {}).get("pageProps", {})
+            expose = page_props.get("expose") or page_props.get("realEstate") or {}
+            re_data = expose.get("realEstate", expose)
+
+            addr = re_data.get("address", {})
+            price_obj = re_data.get("price", {})
+
+            property_data = {
+                "name": re_data.get("title") or expose.get("title", "ImmoScout24 Objekt"),
+                "address": f"{addr.get('street', '')} {addr.get('houseNumber', '')}".strip(),
+                "city": addr.get("city", ""),
+                "zip_code": str(addr.get("postcode", "")),
+                "purchase_price": price_obj.get("value") or price_obj.get("nettoColdRent"),
+                "total_area_sqm": (
+                    re_data.get("livingSpace") or
+                    re_data.get("totalFloorSpace") or
+                    re_data.get("plotArea")
+                ),
+                "construction_year": re_data.get("yearConstructed") or re_data.get("constructionYear"),
+                "units": re_data.get("numberOfRooms") or re_data.get("apartmentCount") or 1,
+                "property_type": _map_immoscout_type(
+                    str(re_data.get("type", {}).get("@id", ""))
+                ),
+            }
+        except Exception:
+            pass
+
+    # 2) Fallback: JSON-LD
+    if not property_data.get("name"):
+        for ld_str in re.findall(r'<script type="application/ld\+json">(.*?)</script>', html, re.DOTALL):
+            try:
+                ld = json.loads(ld_str)
+                if isinstance(ld, list):
+                    ld = ld[0] if ld else {}
+                rtype = ld.get("@type", "")
+                if rtype in ("Residence", "House", "Apartment", "RealEstateListing", "Product", "Offer"):
+                    addr = ld.get("address", {})
+                    floor_size = ld.get("floorSize", {})
+                    property_data = {
+                        "name": ld.get("name", "ImmoScout24 Objekt"),
+                        "address": addr.get("streetAddress", ""),
+                        "city": addr.get("addressLocality", ""),
+                        "zip_code": addr.get("postalCode", ""),
+                        "purchase_price": float(ld.get("price", 0)) or None,
+                        "total_area_sqm": float(floor_size.get("value", 0)) or None,
+                    }
+                    break
+            except Exception:
+                continue
+
+    # 3) Fallback: meta tags
+    if not property_data.get("name"):
+        title_m = re.search(r'<meta property="og:title" content="([^"]+)"', html)
+        price_m = re.search(r'<meta[^>]+product:price:amount[^>]+content="([^"]+)"', html)
+        if title_m:
+            property_data["name"] = title_m.group(1)
+        if price_m:
+            try:
+                property_data["purchase_price"] = float(price_m.group(1).replace(".", "").replace(",", "."))
+            except ValueError:
+                pass
+
+    if not property_data.get("name"):
+        raise HTTPException(
+            status_code=422,
+            detail="Inserat-Daten konnten nicht extrahiert werden. ImmoScout24 blockiert möglicherweise Server-Anfragen. Bitte nutze den manuellen Excel-Import."
+        )
+
+    property_data.setdefault("name", "ImmoScout24 Objekt")
+    property_data.setdefault("city", "")
+    property_data.setdefault("property_type", "RESIDENTIAL")
+    property_data.setdefault("units", 1)
+
+    valid_cols = set(Property.__table__.columns.keys())
+    prop = Property(**{k: v for k, v in property_data.items() if k in valid_cols and v is not None})
+    db.add(prop)
+    db.commit()
+    db.refresh(prop)
+    return _property_dict(prop)
 
 
 @router.get("/upload/template")
