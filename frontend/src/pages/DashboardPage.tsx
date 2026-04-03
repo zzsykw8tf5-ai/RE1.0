@@ -30,7 +30,6 @@ export default function DashboardPage() {
   const totalUnits = properties.reduce((s, p) => s + (p.units || 0), 0);
   const avgPricePerSqm = totalArea > 0 ? totalValue / totalArea : 0;
 
-  // Type distribution for chart
   const typeData = Object.entries(
     properties.reduce((acc, p) => {
       acc[p.property_type] = (acc[p.property_type] || 0) + 1;
@@ -57,7 +56,6 @@ export default function DashboardPage() {
             <div className="w-8 h-8 border-2 border-apple-gray-3 border-t-apple-blue rounded-full animate-spin" />
           </div>
         ) : properties.length === 0 ? (
-          /* Empty state */
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <div className="w-20 h-20 bg-apple-gray-2 rounded-apple-xl flex items-center justify-center mb-5">
               <Building2 size={32} className="text-apple-text-tertiary" />
@@ -73,37 +71,14 @@ export default function DashboardPage() {
           </div>
         ) : (
           <div className="space-y-8 animate-fade-in">
-            {/* KPI Row */}
             <div className="grid grid-cols-4 gap-4">
-              <StatCard
-                label="Portfolio-Wert"
-                value={formatEur(totalValue, 0)}
-                icon={Euro}
-                iconColor="text-apple-blue"
-              />
-              <StatCard
-                label="Gesamtfläche"
-                value={formatSqm(totalArea)}
-                icon={Building2}
-                iconColor="text-apple-green"
-              />
-              <StatCard
-                label="Einheiten"
-                value={totalUnits}
-                icon={Users}
-                iconColor="text-apple-orange"
-              />
-              <StatCard
-                label="Ø €/m²"
-                value={formatEur(avgPricePerSqm, 0)}
-                icon={TrendingUp}
-                iconColor="text-apple-purple"
-              />
+              <StatCard label="Portfolio-Wert" value={formatEur(totalValue, 0)} icon={Euro} iconColor="text-apple-blue" />
+              <StatCard label="Gesamtfläche" value={formatSqm(totalArea)} icon={Building2} iconColor="text-apple-green" />
+              <StatCard label="Einheiten" value={totalUnits} icon={Users} iconColor="text-apple-orange" />
+              <StatCard label="Ø €/m²" value={formatEur(avgPricePerSqm, 0)} icon={TrendingUp} iconColor="text-apple-purple" />
             </div>
 
-            {/* Properties + Chart */}
             <div className="grid grid-cols-3 gap-6">
-              {/* Properties List */}
               <div className="col-span-2 card">
                 <div className="flex items-center justify-between mb-5">
                   <h2 className="font-semibold text-apple-text">Objekte</h2>
@@ -138,7 +113,6 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* Charts */}
               <div className="space-y-4">
                 <div className="card">
                   <div className="text-sm font-semibold text-apple-text mb-4 flex items-center gap-2">
@@ -150,10 +124,7 @@ export default function DashboardPage() {
                       <BarChart data={typeData} barSize={24}>
                         <XAxis dataKey="type" tick={{ fontSize: 10, fill: '#6E6E73' }} axisLine={false} tickLine={false} />
                         <YAxis hide />
-                        <Tooltip
-                          contentStyle={{ background: 'white', border: '1px solid #E8E8ED', borderRadius: 8, fontSize: 12 }}
-                          cursor={{ fill: '#F5F5F7' }}
-                        />
+                        <Tooltip contentStyle={{ background: 'white', border: '1px solid #E8E8ED', borderRadius: 8, fontSize: 12 }} cursor={{ fill: '#F5F5F7' }} />
                         <Bar dataKey="count" radius={[4, 4, 0, 0]}>
                           {typeData.map(entry => (
                             <Cell key={entry.key} fill={TYPE_COLORS[entry.key] || '#6E6E73'} />
