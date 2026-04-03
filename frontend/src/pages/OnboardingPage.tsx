@@ -141,7 +141,22 @@ function TenantStep({
   onTenantDeleted: (id: number) => void;
   onNext: () => void;
 }) {
-  const [rows, setRows] = useState<TenantRow[]>([emptyTenant()]);
+  // Pre-populate rows from already-saved tenants so they can be edited/deleted
+  const [rows, setRows] = useState<TenantRow[]>(() => {
+    const preloaded: TenantRow[] = savedTenants.map(t => ({
+      id: t.id,
+      name: t.name,
+      unit: t.unit || '',
+      area_sqm: t.area_sqm != null ? String(t.area_sqm) : '',
+      monthly_rent: t.monthly_rent != null ? String(t.monthly_rent) : '',
+      lease_start: t.lease_start ? String(t.lease_start).slice(0, 10) : '',
+      lease_end: t.lease_end ? String(t.lease_end).slice(0, 10) : '',
+      tenant_type: t.tenant_type || 'STANDARD',
+      creditworthiness: t.creditworthiness || 'B',
+      saved: true, saving: false, editing: false, error: '',
+    }));
+    return [...preloaded, emptyTenant()];
+  });
   const [suggestions, setSuggestions] = useState<TenantSuggestion[]>([]);
   const [suggestLoading, setSuggestLoading] = useState(false);
 
@@ -698,10 +713,22 @@ export default function OnboardingPage() {
 
   if (loading) return <div className="flex h-full items-center justify-center"><LoadingSpinner label="Wird geladen..." /></div>;
   if (error || !property) return (
-    <div className="flex h-full items-center justify-center">
-      <div className="text-center">
+    <div className="flex h-full items-center justify-center p-8">
+      <div className="text-center max-w-sm">
         <AlertCircle size={40} className="text-apple-red mx-auto mb-3" />
-        <div className="text-sm text-apple-text-secondary">{error || 'Objekt nicht gefunden.'}</div>
+        <div className="text-base font-semibold text-apple-text mb-2">Objekt nicht gefunden</div>
+        <div className="text-sm text-apple-text-secondary mb-4">
+          {error || 'Das Objekt konnte nicht geladen werden.'}<br />
+          <span className="text-xs text-apple-text-tertiary">
+            Hinweis: Bei einem Server-Neustart auf Railway gehen SQLite-Daten verloren. Für dauerhafte Speicherung PostgreSQL einrichten.
+          </span>
+        </div>
+        <button onClick={() => navigate('/upload')} className="btn-primary text-sm">
+          Neues Objekt anlegen
+        </button>
+        <button onClick={() => navigate('/')} className="btn-ghost text-sm ml-2">
+          Zum Dashboard
+        </button>
       </div>
     </div>
   );

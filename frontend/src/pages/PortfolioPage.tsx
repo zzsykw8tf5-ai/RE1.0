@@ -1,11 +1,26 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import { getProperties } from '../services/api';
 import type { Property } from '../types';
 import { formatEur, formatSqm, propertyTypeLabel } from '../utils/format';
 import TopBar from '../components/Layout/TopBar';
-import { ArrowRight, Plus, Map, List, MapPin, ExternalLink } from 'lucide-react';
+import { ArrowRight, Plus, Map, List, MapPin } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis } from 'recharts';
+
+// Fix default leaflet marker icon (broken with bundlers)
+import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
+import markerIcon from 'leaflet/dist/images/marker-icon.png';
+import markerShadow from 'leaflet/dist/images/marker-shadow.png';
+delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl;
+L.Icon.Default.mergeOptions({ iconUrl: markerIcon, iconRetinaUrl: markerIcon2x, shadowUrl: markerShadow });
+
+interface GeoProperty extends Property {
+  lat?: number;
+  lng?: number;
+}
 
 const TYPE_COLORS: Record<string, string> = {
   RESIDENTIAL: '#34C759',
@@ -15,64 +30,51 @@ const TYPE_COLORS: Record<string, string> = {
   MIXED: '#AF52DE',
 };
 
-function PropertyMapCard({ property }: { property: Property }) {
-  const address = [property.address, property.zip_code, property.city].filter(Boolean).join(', ');
-  const query = encodeURIComponent(address || property.city);
-  const googleMapsUrl = `https://maps.google.com/maps?q=${query}`;
-  const streetViewUrl = `https://maps.google.com/maps?q=${query}&layer=c`;
 
-  return (
-    <div className="card overflow-hidden p-0 flex flex-col">
-      <div className="relative">
-        <iframe
-          title={property.name}
-          src={`https://maps.google.com/maps?q=${query}&output=embed&z=16`}
-          width="100%"
-          height="180"
-          style={{ border: 0, display: 'block' }}
-          loading="lazy"
-          referrerPolicy="no-referrer-when-downgrade"
-        />
-        <div
-          className="absolute top-2 left-2 px-2 py-1 text-[10px] font-semibold text-white rounded-md"
-          style={{ backgroundColor: TYPE_COLORS[property.property_type] || '#6E6E73' }}
-        >
-          {propertyTypeLabel(property.property_type)}
-        </div>
-      </div>
-      <div className="p-3 flex-1">
-        <div className="font-medium text-apple-text text-sm truncate">{property.name}</div>
-        <div className="text-[11px] text-apple-text-secondary mt-0.5 truncate flex items-center gap-1">
-          <MapPin size={9} />{address}
-        </div>
-        <div className="flex items-center justify-between mt-2">
-          <span className="text-xs font-semibold text-apple-blue">{formatEur(property.purchase_price)}</span>
-          <div className="flex items-center gap-1.5">
-            <a href={streetViewUrl} target="_blank" rel="noopener noreferrer"
-              className="text-[10px] text-apple-text-tertiary hover:text-apple-blue flex items-center gap-0.5">
-              Street View <ExternalLink size={9} />
-            </a>
-            <a href={googleMapsUrl} target="_blank" rel="noopener noreferrer"
-              className="text-[10px] text-apple-text-tertiary hover:text-apple-blue flex items-center gap-0.5">
-              Maps <ExternalLink size={9} />
-            </a>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+const ALL_TYPES = ['RESIDENTIAL', 'OFFICE', 'RETAIL', 'INDUSTRIAL', 'MIXED'] as const;
+
+async function geocodeProperty(p: Property): Promise<GeoProperty> {
+  const query = [p.address, p.zip_code, p.city].filter(Boolean).join(', ');
+  if (!query) return p;
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`,
+      { headers: { 'Accept-Language': 'de' } }
+    );
+    const data = await res.json();
+    if (data[0]) return { ...p, lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+  } catch { /* ignore geocoding errors */ }
+  return p;
 }
 
 export default function PortfolioPage() {
   const navigate = useNavigate();
-  const [properties, setProperties] = useState<Property[]>([]);
+  const [properties, setProperties] = useState<GeoProperty[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'list' | 'map'>('list');
+  const [typeFilter, setTypeFilter] = useState<string>('ALL');
+  const [geocoding, setGeocoding] = useState(false);
 
   useEffect(() => {
     getProperties().then(d => { setProperties(d); setLoading(false); }).catch(() => setLoading(false));
   }, []);
 
+  // Geocode when switching to map view
+  useEffect(() => {
+    if (view !== 'map' || geocoding) return;
+    const needsGeo = properties.filter(p => p.lat == null && (p.address || p.city));
+    if (needsGeo.length === 0) return;
+    setGeocoding(true);
+    Promise.all(needsGeo.map(geocodeProperty)).then(results => {
+      setProperties(prev => prev.map(p => {
+        const geo = results.find(r => r.id === p.id);
+        return geo ? geo : p;
+      }));
+      setGeocoding(false);
+    });
+  }, [view, properties, geocoding]);
+
+  const filtered = typeFilter === 'ALL' ? properties : properties.filter(p => p.property_type === typeFilter);
   const totalValue = properties.reduce((s, p) => s + p.purchase_price, 0);
   const totalArea = properties.reduce((s, p) => s + p.total_area_sqm, 0);
 
@@ -145,24 +147,77 @@ export default function PortfolioPage() {
 
             {view === 'map' ? (
               /* ── MAP VIEW ── */
-              <div>
+              <div className="space-y-4">
+                {/* Filter bar */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs text-apple-text-secondary font-medium">Filter:</span>
+                  {['ALL', ...ALL_TYPES].map(t => {
+                    const color = t === 'ALL' ? '#6E6E73' : TYPE_COLORS[t];
+                    const active = typeFilter === t;
+                    return (
+                      <button key={t} onClick={() => setTypeFilter(t)}
+                        className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${active ? 'text-white border-transparent' : 'bg-white text-apple-text-secondary border-apple-gray-3 hover:border-apple-blue'}`}
+                        style={active ? { backgroundColor: color, borderColor: color } : {}}
+                      >
+                        {t === 'ALL' ? `Alle (${properties.length})` : `${propertyTypeLabel(t)} (${properties.filter(p => p.property_type === t).length})`}
+                      </button>
+                    );
+                  })}
+                  {geocoding && <span className="text-xs text-apple-text-tertiary ml-2">Adressen werden geocodiert…</span>}
+                </div>
+
                 {properties.length === 0 ? (
                   <div className="card text-center py-12 text-apple-text-secondary text-sm">
                     Keine Objekte vorhanden.
                     <button onClick={() => navigate('/upload')} className="btn-primary ml-3 text-xs">Objekt hochladen</button>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-3 gap-4">
-                    {properties.slice(0, 9).map(p => (
-                      <div key={p.id} className="cursor-pointer" onClick={() => navigate(`/property/${p.id}`)}>
-                        <PropertyMapCard property={p} />
-                      </div>
-                    ))}
+                  <div className="card p-0 overflow-hidden" style={{ height: 520 }}>
+                    <MapContainer
+                      center={[51.1657, 10.4515]}
+                      zoom={6}
+                      style={{ height: '100%', width: '100%' }}
+                    >
+                      <TileLayer
+                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                      />
+                      {filtered.filter(p => p.lat != null && p.lng != null).map(p => {
+                        const icon = L.divIcon({
+                          className: '',
+                          html: `<div style="background:${TYPE_COLORS[p.property_type] || '#6E6E73'};width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,.35)"></div>`,
+                          iconSize: [28, 28],
+                          iconAnchor: [14, 28],
+                          popupAnchor: [0, -30],
+                        });
+                        return (
+                          <Marker key={p.id} position={[p.lat!, p.lng!]} icon={icon}>
+                            <Popup>
+                              <div style={{ minWidth: 180 }}>
+                                <div style={{ fontWeight: 600, marginBottom: 2 }}>{p.name}</div>
+                                <div style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>{[p.address, p.city].filter(Boolean).join(', ')}</div>
+                                <div style={{ fontSize: 11, marginBottom: 6 }}>
+                                  <span style={{ background: TYPE_COLORS[p.property_type], color: 'white', padding: '1px 6px', borderRadius: 4 }}>{propertyTypeLabel(p.property_type)}</span>
+                                  {p.purchase_price ? <span style={{ marginLeft: 6, fontWeight: 600 }}>{formatEur(p.purchase_price)}</span> : null}
+                                </div>
+                                {p.total_area_sqm ? <div style={{ fontSize: 11, color: '#666' }}>Fläche: {formatSqm(p.total_area_sqm)}</div> : null}
+                                <button
+                                  onClick={() => navigate(`/property/${p.id}`)}
+                                  style={{ marginTop: 8, fontSize: 11, color: '#0066CC', cursor: 'pointer', background: 'none', border: 'none', padding: 0 }}
+                                >
+                                  Objekt öffnen →
+                                </button>
+                              </div>
+                            </Popup>
+                          </Marker>
+                        );
+                      })}
+                    </MapContainer>
                   </div>
                 )}
-                {properties.length > 9 && (
-                  <p className="text-xs text-apple-text-tertiary text-center mt-3">
-                    {properties.length - 9} weitere Objekte – zur Liste wechseln für vollständige Übersicht.
+                {filtered.filter(p => p.lat == null).length > 0 && (
+                  <p className="text-xs text-apple-text-tertiary">
+                    {filtered.filter(p => p.lat == null).length} Objekte konnten nicht geocodiert werden (fehlende Adresse).
                   </p>
                 )}
               </div>
@@ -202,7 +257,21 @@ export default function PortfolioPage() {
                 </div>
 
                 <div className="card overflow-x-auto">
-                  <h3 className="font-semibold text-apple-text mb-4">Alle Objekte</h3>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-semibold text-apple-text">Alle Objekte</h3>
+                    <div className="flex gap-1">
+                      {['ALL', ...ALL_TYPES].map(t => {
+                        const cnt = t === 'ALL' ? properties.length : properties.filter(p => p.property_type === t).length;
+                        if (cnt === 0 && t !== 'ALL') return null;
+                        return (
+                          <button key={t} onClick={() => setTypeFilter(t)}
+                            className={`px-2.5 py-1 rounded-full text-xs transition-all ${typeFilter === t ? 'bg-apple-blue text-white' : 'bg-apple-gray-2 text-apple-text-secondary hover:bg-apple-gray-3'}`}>
+                            {t === 'ALL' ? `Alle` : propertyTypeLabel(t)} ({cnt})
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                   {properties.length === 0 ? (
                     <div className="text-center py-12 text-apple-text-secondary text-sm">
                       Keine Objekte vorhanden.
@@ -218,7 +287,7 @@ export default function PortfolioPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {properties.map(p => {
+                        {filtered.map(p => {
                           const addr = [p.address, p.zip_code, p.city].filter(Boolean).join(', ');
                           const mapsUrl = `https://maps.google.com/maps?q=${encodeURIComponent(addr || p.city)}`;
                           return (
