@@ -1,5 +1,5 @@
 interface ScoreRingProps {
-  score: number; // 0-100
+  score: number;
   size?: number;
   strokeWidth?: number;
   label?: string;
