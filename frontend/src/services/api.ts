@@ -81,11 +81,17 @@ export const addTenant = (propertyId: number, data: {
 export const deleteTenant = (propertyId: number, tenantId: number): Promise<void> =>
   api.delete(`/api/properties/${propertyId}/tenants/${tenantId}`).then(r => r.data);
 
-export const createProperty = (data: {
+export const createProperty = async (data: {
   name: string; address?: string; city?: string; zip_code?: string;
   property_type?: string; construction_year?: number; total_area_sqm?: number;
   land_area_sqm?: number; floors?: number; units?: number; purchase_price?: number;
-}): Promise<Property> => api.post('/api/properties', data).then(r => r.data);
+  purchase_date?: string;
+}): Promise<Property> => {
+  if (!(await isBackendUp())) {
+    throw new Error('Backend nicht verfügbar. Bitte stelle sicher, dass der Server läuft.');
+  }
+  return api.post('/api/properties', data).then(r => r.data);
+};
 
 export const downloadTemplate = async (): Promise<void> => {
   if (!(await isBackendUp())) {

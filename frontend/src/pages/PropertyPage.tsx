@@ -249,7 +249,7 @@ export default function PropertyPage() {
                     type={type}
                     value={editForm[key]}
                     onChange={e => setEditForm(f => f ? { ...f, [key]: e.target.value } : f)}
-                    className="input-field w-full text-sm"
+                    className="w-full px-3 py-2 rounded-apple border border-apple-gray-3 text-sm focus:outline-none focus:border-apple-blue focus:ring-2 focus:ring-apple-blue/20 bg-white"
                   />
                 </div>
               ))}
@@ -258,7 +258,7 @@ export default function PropertyPage() {
                 <select
                   value={editForm.property_type}
                   onChange={e => setEditForm(f => f ? { ...f, property_type: e.target.value } : f)}
-                  className="input-field w-full text-sm"
+                  className="w-full px-3 py-2 rounded-apple border border-apple-gray-3 text-sm focus:outline-none focus:border-apple-blue focus:ring-2 focus:ring-apple-blue/20 bg-white"
                 >
                   {PROPERTY_TYPES.map(t => (
                     <option key={t} value={t}>{propertyTypeLabel(t)}</option>

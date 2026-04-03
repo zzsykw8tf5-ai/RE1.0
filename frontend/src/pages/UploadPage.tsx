@@ -53,7 +53,14 @@ function ReviewForm({
   onSave: (data: FormData) => Promise<void>;
   onCancel: () => void;
 }) {
-  const [form, setForm] = useState<FormData>({ ...EMPTY_FORM, ...initial });
+  const [form, setForm] = useState<FormData>(() => {
+    const base = { ...EMPTY_FORM, ...initial };
+    // Auto-generate name if not provided
+    if (!base.name) {
+      base.name = buildAutoName(base.property_type, base.city, base.address);
+    }
+    return base;
+  });
   const [nameManuallyEdited, setNameManuallyEdited] = useState(!!initial.name);
 
   // Auto-update name when type/city/address change and user hasn't manually edited it
