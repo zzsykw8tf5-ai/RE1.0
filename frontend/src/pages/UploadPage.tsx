@@ -309,7 +309,23 @@ export default function UploadPage() {
       construction_year: data.construction_year != null ? String(data.construction_year) : '',
       floors: data.floors != null ? String(data.floors) : '',
       units: data.units != null ? String(data.units) : '',
+      purchase_date: '',
     };
+  };
+
+  // Render agent info block from extraction
+  const renderAgentInfo = (data: Record<string, unknown>) => {
+    const agent = data.agent as Record<string, string | null> | undefined;
+    if (!agent || !agent.name) return null;
+    return (
+      <div className="mt-4 p-3 bg-apple-gray rounded-apple border border-apple-gray-2 text-xs">
+        <div className="font-medium text-apple-text-secondary mb-1">Maklerangaben (aus PDF extrahiert)</div>
+        {agent.name && <div><span className="text-apple-text-tertiary">Name:</span> {agent.name}</div>}
+        {agent.address && <div><span className="text-apple-text-tertiary">Adresse:</span> {agent.address}</div>}
+        {agent.phone && <div><span className="text-apple-text-tertiary">Telefon:</span> {agent.phone}</div>}
+        {agent.email && <div><span className="text-apple-text-tertiary">E-Mail:</span> <a href={`mailto:${agent.email}`} className="text-apple-blue">{agent.email}</a></div>}
+      </div>
+    );
   };
 
   const excelDz = useDropzone({
@@ -471,6 +487,15 @@ export default function UploadPage() {
                   onSave={handlePdfSave}
                   onCancel={() => { setPdfExtracted(null); setPdfState('idle'); }}
                 />
+                {/* Extracted rent data */}
+                {(pdfExtracted.annual_rent || pdfExtracted.monthly_rent) && (
+                  <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-apple text-xs">
+                    <div className="font-medium text-apple-green mb-1">Erkannte Mietdaten (für Onboarding vorgemerkt)</div>
+                    {pdfExtracted.annual_rent && <div>Jahresmiete: <span className="font-semibold">{Number(pdfExtracted.annual_rent).toLocaleString('de-DE')} €</span></div>}
+                    {pdfExtracted.monthly_rent && <div>Monatliche Miete: <span className="font-semibold">{Number(pdfExtracted.monthly_rent).toLocaleString('de-DE')} €</span></div>}
+                  </div>
+                )}
+                {renderAgentInfo(pdfExtracted)}
               </div>
             )}
 

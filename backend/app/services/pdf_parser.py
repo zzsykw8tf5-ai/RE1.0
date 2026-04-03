@@ -122,72 +122,81 @@ def _find_area(text: str) -> float | None:
     return None
 
 
+# Street suffix keywords — lowercase (street names end with these in German)
 _STREET_SUFFIXES = (
     r'straße|strasse|str\.|gasse|weg|allee|platz|ring|damm|hafen|ufer|chaussee'
     r'|berg|steig|pfad|markt|hof|zeile|stieg|promenade|kai'
+    r'|Straße|Strasse|Gasse|Weg|Allee|Platz|Ring|Damm|Hafen|Ufer|Chaussee'
 )
-_STREET_WORD = (
-    r'[A-ZÄÖÜ][a-zäöüß]+(?:[-][A-Za-zäöüßÄÖÜ]+)*'
-    r'(?:\s+[A-Za-zäöüßÄÖÜ]+)*'
-)
+# Strict (no IGNORECASE) — only matches properly capitalized German words
+# [A-ZÄÖÜ] = uppercase start, [a-zäöüßÄÖÜ] = lowercase body (Ä/Ö/Ü for compound names)
+_STREET_WORD = r'[A-ZÄÖÜ][a-zäöüßÄÖÜ]+(?:[-][A-ZÄÖÜ]?[a-zäöüßÄÖÜ]+)*(?:\s[A-ZÄÖÜ][a-zäöüßÄÖÜ]+)*'
 
 
-def _is_near_provider_context(text: str, match_start: int) -> bool:
-    """Return True if the match position is near provider/agent context words."""
-    context_window = 300  # chars before the match
-    before = text[max(0, match_start - context_window):match_start].lower()
-    return any(word in before for word in _PROVIDER_WORDS)
+def _find_provider_section_start(text: str) -> int:
+    """Find where the provider/agent contact section begins.
+    Returns the character position, or len(text) if not found.
+    Multi-word markers are more specific than single words like 'Makler'.
+    """
+    markers = [
+        r'Ihr\s+Ansprechpartner',
+        r'Kontaktdaten\s+(?:des\s+)?(?:Maklers?|Anbieters?)',
+        r'Unser\s+(?:Büro|Team|Angebot)',
+        r'Anbieter(?:profil)?:',
+        r'(?:Anbietende|Vermittelnde)\s+(?:Firma|Person)',
+        r'Makler(?:information|angaben|profil)',
+    ]
+    for pattern in markers:
+        m = re.search(pattern, text, re.IGNORECASE)
+        if m:
+            return m.start()
+    return len(text)
 
 
 def _find_full_address(text: str) -> tuple[str | None, str | None, str | None]:
     """Find (street, zip, city) all in one combined pattern.
-    Searches primarily in the first 60% of the document to avoid picking up
-    the real estate agent's contact address at the end.
+    Avoids addresses that appear after the provider/contact section.
     """
-    # Search first in the first 60% of the document, then fall back to full text
-    cutoff = int(len(text) * 0.6)
-    search_areas = [text[:cutoff], text] if cutoff < len(text) else [text]
+    provider_start = _find_provider_section_start(text)
+    # Search only in the object part of the document
+    object_text = text[:provider_start]
 
+    # No IGNORECASE — prevents ALL-CAPS words like "EUR" or "MFH" from matching as street words
     forward_pat = re.compile(
         r'(' + _STREET_WORD + r'\s*(?:' + _STREET_SUFFIXES + r')\s*\d+\s*[a-zA-Z]?)'
         r'\s*[,\n]\s*(\d{5})\s+([A-ZÄÖÜ][a-zäöüßA-ZÄÖÜ][a-zäöüß\s\-]*)',
-        re.IGNORECASE,
     )
     reverse_pat = re.compile(
         r'(\d{5})\s+([A-ZÄÖÜ][a-zäöüßA-ZÄÖÜ][a-zäöüß\s\-]*?)\s*[,\n]\s*'
         r'(' + _STREET_WORD + r'\s*(?:' + _STREET_SUFFIXES + r')\s*\d+\s*[a-zA-Z]?)',
-        re.IGNORECASE,
     )
-    # Explicit object-label patterns (highest priority, search full text)
     labeled_pat = re.compile(
         r'(?:Objektadresse|Adresse\s*des\s*Objekts?|Objekt(?:standort)?)\s*[:\s]\s*'
         r'(' + _STREET_WORD + r'\s*(?:' + _STREET_SUFFIXES + r')[^\n]{0,20})',
         re.IGNORECASE,
     )
 
-    # 1) Try explicit label anywhere in document
-    m = labeled_pat.search(text)
+    # 1) Try explicit label in object section
+    m = labeled_pat.search(object_text)
     if m:
         street_raw = m.group(1).strip().rstrip(',')
-        zip_m = re.search(r'(\d{5})\s+([A-ZÄÖÜ][a-zäöüßA-ZÄÖÜ][a-zäöüß\s\-]+)', text[m.start():m.start()+200])
+        zip_m = re.search(r'(\d{5})\s+([A-ZÄÖÜ][a-zäöüßA-ZÄÖÜ][a-zäöüß\s\-]+)', object_text[m.start():m.start()+200])
         if zip_m:
             return street_raw, zip_m.group(1), ' '.join(zip_m.group(2).strip().split()[:3])
 
-    # 2) Forward / reverse pattern, prefer first half of document
-    for search_text in search_areas:
-        for pat, is_forward in [(forward_pat, True), (reverse_pat, False)]:
-            for m in pat.finditer(search_text):
-                if _is_near_provider_context(search_text, m.start()):
-                    continue
-                if is_forward:
-                    street = m.group(1).strip().rstrip(',')
-                    zip_code = m.group(2)
-                    city = ' '.join(m.group(3).strip().rstrip(',. ').split()[:3])
-                else:
-                    zip_code = m.group(1)
-                    city = ' '.join(m.group(2).strip().rstrip(',. ').split()[:3])
-                    street = m.group(3).strip().rstrip(',')
-                return street, zip_code, city
+    # 2) Forward then reverse pattern in object section
+    for pat, is_forward in [(forward_pat, True), (reverse_pat, False)]:
+        m = pat.search(object_text)
+        if m:
+            if is_forward:
+                street = m.group(1).strip().rstrip(',')
+                zip_code = m.group(2)
+                city = ' '.join(m.group(3).strip().rstrip(',. ').split()[:3])
+            else:
+                zip_code = m.group(1)
+                city = ' '.join(m.group(2).strip().rstrip(',. ').split()[:3])
+                street = m.group(3).strip().rstrip(',')
+            return street, zip_code, city
 
     return None, None, None
 
@@ -224,26 +233,23 @@ def _find_street(text: str) -> str | None:
             if 3 < len(val) < 80:
                 return val
 
-    # Street followed by house number — search first 60% only to avoid agent address
-    cutoff = int(len(text) * 0.6)
-    search_text = text[:cutoff] if cutoff > 100 else text
+    # Only search the object portion (before provider/contact section)
+    provider_start = _find_provider_section_start(text)
+    search_text = text[:provider_start]
 
     pattern = re.compile(
         r'(' + _STREET_WORD + r'\s*(?:' + _STREET_SUFFIXES + r')\s*\d+\s*[a-zA-Z]?)',
-        re.IGNORECASE,
     )
-    for m in pattern.finditer(search_text):
-        if _is_near_provider_context(search_text, m.start()):
-            continue
+    m = pattern.search(search_text)
+    if m:
         val = m.group(1).strip().rstrip(',')
         val = re.sub(r'\s*\d{5}\s+\S.*$', '', val).strip()
         if 3 < len(val) < 80:
             return val
 
     # Street without number (fallback)
-    for m in re.finditer(r'(' + _STREET_WORD + r'\s*(?:' + _STREET_SUFFIXES + r'))', search_text, re.IGNORECASE):
-        if _is_near_provider_context(search_text, m.start()):
-            continue
+    m = re.search(r'(' + _STREET_WORD + r'\s*(?:' + _STREET_SUFFIXES + r'))', search_text)
+    if m:
         val = m.group(1).strip().rstrip(',')
         if 3 < len(val) < 80:
             return val
@@ -280,6 +286,96 @@ def _find_property_name(text: str) -> str | None:
             continue
         return line
     return None
+
+
+def _find_description(text: str) -> str | None:
+    """Extract property description (longer continuous text block)."""
+    # Look for labeled description section
+    for pattern in [
+        r'(?:Objektbeschreibung|Beschreibung|Exposé-Text|Ausstattung|Lagebeschreibung)\s*[:\n]\s*(.{50,800}?)(?:\n\n|\Z)',
+        r'(?:Das Objekt|Das Gebäude|Die Immobilie)\s+(.{40,600}?)(?:\n\n|\Z)',
+    ]:
+        m = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
+        if m:
+            desc = m.group(1).strip()
+            if len(desc) > 40:
+                return desc[:800]
+
+    # Fallback: find longest paragraph in first half of document
+    provider_start = _find_provider_section_start(text)
+    object_text = text[:provider_start]
+    paragraphs = [p.strip() for p in re.split(r'\n{2,}', object_text) if len(p.strip()) > 80]
+    if paragraphs:
+        return max(paragraphs, key=len)[:800]
+    return None
+
+
+def _find_monthly_rent(text: str) -> float | None:
+    """Find actual/current monthly rent (IST-Miete)."""
+    for pattern in [
+        r'(?:IST-Miete|Aktuelle\s+Miete|Kaltmiete|Monatliche\s+Miete|Jahresmiete\s*/\s*12)\s*[:\s]\s*([0-9]{1,3}(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})?)\s*(?:€|EUR|Euro)',
+        r'(?:Mieteinnahmen|Mieterträge)\s*(?:p\.?\s*[Mm]\.?|monatlich)?\s*[:\s]\s*([0-9]{1,3}(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})?)\s*(?:€|EUR|Euro)',
+    ]:
+        m = re.search(pattern, text, re.IGNORECASE)
+        if m:
+            try:
+                v = _parse_german_number(m.group(1))
+                if v > 100:
+                    return v
+            except ValueError:
+                continue
+    return None
+
+
+def _find_annual_rent(text: str) -> float | None:
+    """Find annual rent / Jahresmiete."""
+    for pattern in [
+        r'(?:Jahresmiete|Jahresrohertrag|Jahresnettomiete|Jahresertrag|Mieteinnahmen\s*p\.?\s*a\.?)\s*[:\s]\s*([0-9]{1,3}(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})?)\s*(?:€|EUR|Euro)',
+        r'(?:Jahresmiete|Jahresrohertrag)\D{0,10}([0-9]{1,3}(?:[.,][0-9]{3})+)\s*(?:€|EUR)',
+    ]:
+        m = re.search(pattern, text, re.IGNORECASE)
+        if m:
+            try:
+                v = _parse_german_number(m.group(1))
+                if v > 1000:
+                    return v
+            except ValueError:
+                continue
+    return None
+
+
+def _find_agent_info(text: str) -> dict:
+    """Extract real estate agent/Makler contact information."""
+    provider_start = _find_provider_section_start(text)
+    # Look in the last 40% of the document (where agent info usually is)
+    agent_section = text[provider_start:] if provider_start < len(text) else text[int(len(text) * 0.6):]
+
+    result: dict[str, str | None] = {"name": None, "phone": None, "email": None, "address": None}
+
+    # Company name (often first capitalized line in agent section)
+    name_m = re.search(r'([A-ZÄÖÜ][a-zäöüßÄÖÜ\s&,\.\-]+(?:GmbH|AG|KG|Immobilien|Makler|Realty|Estate)[^\n]{0,40})', agent_section)
+    if name_m:
+        result["name"] = name_m.group(1).strip()[:120]
+
+    # Phone
+    phone_m = re.search(r'(?:Telefon|Tel\.?|Phone|Fon)\s*[:\s]?\s*([+0-9\s\(\)\-/]{7,20})', agent_section, re.IGNORECASE)
+    if phone_m:
+        result["phone"] = phone_m.group(1).strip()
+
+    # Email
+    email_m = re.search(r'([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})', agent_section)
+    if email_m:
+        result["email"] = email_m.group(1)
+
+    # Agent address (street in agent section)
+    addr_m = re.search(
+        r'([A-ZÄÖÜ][a-zäöüßÄÖÜ]+(?:[-][A-ZÄÖÜ]?[a-zäöüßÄÖÜ]+)*\s*(?:straße|strasse|str\.|gasse|weg|allee|platz|ring|damm)\s*\d+[a-zA-Z]?)',
+        agent_section,
+    )
+    if addr_m:
+        result["address"] = addr_m.group(1).strip()
+
+    return result
 
 
 def _find_land_area(text: str) -> float | None:
@@ -390,19 +486,35 @@ def parse_pdf(file_bytes: bytes) -> dict:
         if not city:
             city = _city
 
+    property_name = _find_property_name(text)
+    property_type = _find_property_type(text)
+    total_area = _find_area(text)
+    purchase_price = _find_price(text)
+    annual_rent = _find_annual_rent(text)
+    monthly_rent = _find_monthly_rent(text)
+    # If only monthly rent found, derive annual
+    if annual_rent is None and monthly_rent is not None:
+        annual_rent = round(monthly_rent * 12, 2)
+
+    agent_info = _find_agent_info(text)
+    description = _find_description(text)
+
     result = {
-        "property_name": _find_property_name(text),
+        "property_name": property_name,
         "address": street,
         "city": city,
         "zip_code": zip_code,
-        "property_type": _find_property_type(text),
-        "total_area": _find_area(text),
+        "property_type": property_type,
+        "total_area": total_area,
         "land_area": _find_land_area(text),
-        "purchase_price": _find_price(text),
+        "purchase_price": purchase_price,
         "construction_year": _find_construction_year(text),
         "units": _find_units(text),
         "floors": _find_floors(text),
-        "description": text[:500] if text else None,
+        "annual_rent": annual_rent,
+        "monthly_rent": monthly_rent,
+        "description": description,
+        "agent": agent_info,
         "raw_text_length": len(text),
     }
 
