@@ -232,8 +232,10 @@ def run_dcf(params: dict) -> dict:
         })
 
     # ─── Terminal / Exit Value ─────────────────────────────────────────────────
-    # Exit NOI = hold_period+1 NOI (forward cap)
-    exit_noi = initial_noi * (1 + rent_growth_rate) ** hold_period
+    # Exit NOI = last year's actual NOI × (1 + rent_growth) — forward cap rate approach.
+    # Using last year's loop NOI ensures the exit value is consistent with the cash flow table.
+    last_noi = yearly_cashflows[-1]["noi"] if yearly_cashflows else initial_noi
+    exit_noi = last_noi * (1 + rent_growth_rate)
     gross_sale_price = exit_noi / exit_cap_rate if exit_cap_rate > 0 else 0
     disposition_costs = gross_sale_price * disposition_costs_pct
     net_sale_proceeds = gross_sale_price - disposition_costs

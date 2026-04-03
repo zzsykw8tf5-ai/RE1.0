@@ -1,16 +1,37 @@
+import { useState, useEffect } from 'react';
 import type { DCFResult, Property } from '../../types';
 import { formatEur, formatIRR, formatMultiple, formatPctDirect } from '../../utils/format';
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, Legend,
   ResponsiveContainer, ReferenceLine, CartesianGrid,
 } from 'recharts';
+import { runDCF } from '../../services/api';
 
 interface Props { data: DCFResult; property: Property; }
 
 const EUR_TICK = (v: number) => v >= 1_000_000 ? `${(v / 1_000_000).toFixed(1)}M` : v >= 1_000 ? `${(v / 1_000).toFixed(0)}K` : String(v);
 
-export default function DCFTab({ data }: Props) {
-  const { yearly_cashflows: cfs, metrics, sensitivity, terminal_value, sale_proceeds } = data;
+export default function DCFTab({ data, property }: Props) {
+  const initCapRate = Math.round(((data.params_used?.exit_cap_rate_pct ?? 5) + Number.EPSILON) * 4) / 4;
+  const initHold = data.params_used?.hold_period_years ?? 10;
+
+  const [exitCapRate, setExitCapRate] = useState(initCapRate);
+  const [holdPeriod, setHoldPeriod] = useState(initHold);
+  const [localData, setLocalData] = useState<DCFResult>(data);
+  const [recalculating, setRecalculating] = useState(false);
+
+  useEffect(() => { setLocalData(data); }, [data]);
+
+  const recalculate = async (cap: number, hold: number) => {
+    if (!property?.id) return;
+    setRecalculating(true);
+    try {
+      const updated = await runDCF(property.id, { exit_cap_rate: cap / 100, hold_period: hold });
+      setLocalData(updated);
+    } catch { /* ignore */ } finally { setRecalculating(false); }
+  };
+
+  const { yearly_cashflows: cfs, metrics, sensitivity, terminal_value, sale_proceeds } = localData;
 
   const chartData = cfs.map(cf => ({
     Jahr: `J${cf.year}`,
@@ -136,19 +157,70 @@ export default function DCFTab({ data }: Props) {
       {/* Exit & Sensitivity */}
       <div className="grid grid-cols-2 gap-6">
         <div className="card">
-          <h3 className="font-semibold text-apple-text mb-4">Exit-Analyse (Jahr 10)</h3>
-          <div className="space-y-2">
-            <div className="flex justify-between py-2 border-b border-apple-gray-2">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-apple-text">Exit-Planung</h3>
+            {recalculating && <span className="text-[11px] text-apple-text-tertiary animate-pulse">Berechnung…</span>}
+          </div>
+
+          {/* Exit Cap Rate slider */}
+          <div className="mb-4">
+            <div className="flex justify-between text-xs mb-1">
+              <span className="text-apple-text-secondary">Exit Cap Rate</span>
+              <span className="font-semibold text-apple-blue">{exitCapRate.toFixed(2)} %</span>
+            </div>
+            <input
+              type="range" min={2} max={10} step={0.25}
+              value={exitCapRate}
+              onChange={e => setExitCapRate(parseFloat(e.target.value))}
+              onMouseUp={() => recalculate(exitCapRate, holdPeriod)}
+              onTouchEnd={() => recalculate(exitCapRate, holdPeriod)}
+              className="w-full accent-apple-blue"
+            />
+            <div className="flex justify-between text-[10px] text-apple-text-tertiary mt-0.5"><span>2 %</span><span>10 %</span></div>
+          </div>
+
+          {/* Hold Period */}
+          <div className="mb-4">
+            <div className="flex justify-between text-xs mb-1.5">
+              <span className="text-apple-text-secondary">Haltedauer</span>
+              <span className="font-semibold text-apple-blue">{holdPeriod} Jahre</span>
+            </div>
+            <div className="flex gap-1.5">
+              {[5, 7, 10, 12, 15].map(y => (
+                <button
+                  key={y}
+                  onClick={() => { setHoldPeriod(y); recalculate(exitCapRate, y); }}
+                  className={`flex-1 py-1 rounded text-xs font-medium transition-colors ${holdPeriod === y ? 'bg-apple-blue text-white' : 'bg-apple-gray text-apple-text hover:bg-apple-gray-2'}`}
+                >{y}J</button>
+              ))}
+            </div>
+          </div>
+
+          {/* Results */}
+          <div className="space-y-2 pt-2 border-t border-apple-gray-2">
+            <div className="flex justify-between py-1.5">
               <span className="text-sm text-apple-text-secondary">Verkaufserlös</span>
               <span className="text-sm font-medium text-apple-text">{formatEur(sale_proceeds)}</span>
             </div>
-            <div className="flex justify-between py-2 border-b border-apple-gray-2">
-              <span className="text-sm text-apple-text-secondary">Terminal Value</span>
+            <div className="flex justify-between py-1.5">
+              <span className="text-sm text-apple-text-secondary">Terminal Value (brutto)</span>
               <span className="text-sm font-medium text-apple-text">{formatEur(terminal_value)}</span>
             </div>
-            <div className="flex justify-between py-2">
+            <div className="flex justify-between py-1.5 border-t border-apple-gray-2 pt-2">
               <span className="text-sm font-semibold text-apple-text">Total Equity Return</span>
-              <span className="text-sm font-semibold text-apple-green">{formatEur(data.total_equity_return)}</span>
+              <span className={`text-sm font-semibold ${localData.total_equity_return >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>{formatEur(localData.total_equity_return)}</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 pt-1">
+              {[
+                { label: 'IRR', value: formatIRR(metrics.irr) },
+                { label: 'Equity Multiple', value: formatMultiple(metrics.equity_multiple) },
+                { label: 'NPV', value: formatEur(metrics.npv) },
+              ].map(kpi => (
+                <div key={kpi.label} className="bg-apple-gray rounded-lg p-2 text-center">
+                  <div className="text-[10px] text-apple-text-tertiary">{kpi.label}</div>
+                  <div className="text-sm font-semibold text-apple-text mt-0.5">{kpi.value}</div>
+                </div>
+              ))}
             </div>
           </div>
         </div>

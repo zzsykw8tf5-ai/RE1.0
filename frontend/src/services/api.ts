@@ -185,6 +185,11 @@ export interface TenantSuggestion { name: string; is_company: boolean; }
 export const suggestTenants = (address: string, city: string = ''): Promise<{ suggestions: TenantSuggestion[] }> =>
   api.get('/api/suggest-tenants', { params: { address, city } }).then(r => r.data);
 
+// ---- Company search (Clearbit autocomplete + DuckDuckGo fallback) ----
+export interface CompanySuggestion { name: string; domain: string; logo: string; is_company: boolean; source: string; }
+export const companySearch = (name: string): Promise<{ suggestions: CompanySuggestion[] }> =>
+  api.get('/api/company-search', { params: { name } }).then(r => r.data);
+
 // ---- Demo mode: lightweight scenario simulation ----
 function _applyScenarioToDemoData(base: DCFResult, params: Record<string, number>): DCFResult {
   const rentGrowth = params.rent_growth_rate ?? 0.02;

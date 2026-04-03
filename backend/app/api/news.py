@@ -137,3 +137,68 @@ async def suggest_tenants(address: str, city: str = "") -> dict:
     # Sort: real companies first
     suggestions.sort(key=lambda x: (0 if x["is_company"] else 1))
     return {"suggestions": suggestions[:6]}
+
+
+@router.get("/company-search")
+async def company_search(name: str) -> dict:
+    """
+    Search for a company by name.
+    Primary: Clearbit autocomplete (free, no API key) — returns name, domain, logo.
+    Fallback: DuckDuckGo HTML search.
+    """
+    if not name or len(name.strip()) < 2:
+        return {"suggestions": []}
+
+    suggestions: list[dict] = []
+
+    # 1. Clearbit autocomplete (no API key required)
+    try:
+        cb_url = f"https://autocomplete.clearbit.com/v1/companies/suggest?query={quote_plus(name)}"
+        async with httpx.AsyncClient(
+            headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
+            timeout=4,
+        ) as client:
+            resp = await client.get(cb_url)
+        if resp.status_code == 200:
+            for co in resp.json()[:7]:
+                co_name = co.get("name", "").strip()
+                domain = co.get("domain", "").strip()
+                if co_name:
+                    suggestions.append({
+                        "name": co_name,
+                        "domain": domain,
+                        "logo": f"https://logo.clearbit.com/{domain}" if domain else "",
+                        "is_company": True,
+                        "source": "clearbit",
+                    })
+    except Exception:
+        pass
+
+    # 2. DuckDuckGo fallback if Clearbit returned nothing
+    if not suggestions:
+        query = f"{name} GmbH AG Unternehmen Deutschland"
+        encoded = quote_plus(query)
+        ddg_url = f"https://html.duckduckgo.com/html/?q={encoded}&kl=de-de"
+        try:
+            async with httpx.AsyncClient(headers=_HEADERS, timeout=8, follow_redirects=True) as client:
+                resp = await client.get(ddg_url)
+            if resp.status_code == 200:
+                titles = re.findall(r'class="result__a"[^>]*>([^<]+)</a>', resp.text)
+                seen: set[str] = set()
+                for title in titles[:10]:
+                    title = re.sub(r'<[^>]+>', '', title).strip()
+                    if not title or title.lower() in seen or len(title) < 3 or len(title) > 80:
+                        continue
+                    if any(skip in title.lower() for skip in _SKIP_PHRASES):
+                        continue
+                    is_co = any(kw in title for kw in ['GmbH', 'AG', 'KG', 'SE', 'mbH', 'eG', 'Ltd'])
+                    seen.add(title.lower())
+                    suggestions.append({
+                        "name": title, "domain": "", "logo": "",
+                        "is_company": is_co, "source": "ddg",
+                    })
+        except Exception:
+            pass
+
+    suggestions.sort(key=lambda x: (0 if x["is_company"] else 1))
+    return {"suggestions": suggestions[:7]}

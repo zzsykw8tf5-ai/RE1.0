@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ChevronRight, ChevronLeft, Plus, Trash2,
@@ -6,9 +6,9 @@ import {
 } from 'lucide-react';
 import TopBar from '../components/Layout/TopBar';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
-import { getProperty, getMarketData, addTenant, deleteTenant, updateTenant, suggestTenants } from '../services/api';
+import { getProperty, getMarketData, addTenant, deleteTenant, updateTenant, suggestTenants, companySearch } from '../services/api';
 import type { Property, Tenant } from '../types';
-import type { TenantSuggestion } from '../services/api';
+import type { TenantSuggestion, CompanySuggestion } from '../services/api';
 
 const COMMERCIAL_TYPES = ['OFFICE', 'RETAIL', 'INDUSTRIAL', 'MIXED'];
 
@@ -159,8 +159,29 @@ function TenantStep({
   });
   const [suggestions, setSuggestions] = useState<TenantSuggestion[]>([]);
   const [suggestLoading, setSuggestLoading] = useState(false);
+  const [nameDropdown, setNameDropdown] = useState<{ rowIdx: number; results: CompanySuggestion[] } | null>(null);
+  const nameSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isCommercial = COMMERCIAL_TYPES.includes(property.property_type);
+
+  const handleNameChange = (i: number, value: string) => {
+    updateRow(i, { name: value });
+    if (nameSearchTimer.current) clearTimeout(nameSearchTimer.current);
+    setNameDropdown(null);
+    if (value.trim().length >= 3) {
+      nameSearchTimer.current = setTimeout(async () => {
+        try {
+          const res = await companySearch(value.trim());
+          if (res.suggestions.length > 0) setNameDropdown({ rowIdx: i, results: res.suggestions });
+        } catch { /* silently ignore */ }
+      }, 420);
+    }
+  };
+
+  const applyNameSuggestion = (i: number, name: string) => {
+    updateRow(i, { name });
+    setNameDropdown(null);
+  };
 
   const totalAnnualRent = savedTenants.reduce((s, t) => s + (t.annual_rent || 0), 0);
   const totalArea = savedTenants.reduce((s, t) => s + (t.area_sqm || 0), 0);
@@ -344,10 +365,37 @@ function TenantStep({
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                <div className="col-span-2 sm:col-span-1">
+                <div className="col-span-2 sm:col-span-1 relative">
                   <label className="block text-[10px] text-apple-text-secondary mb-0.5">Mieter *</label>
-                  <input className={inputCls} placeholder="Musterfirma GmbH" value={row.name}
-                    onChange={e => updateRow(i, { name: e.target.value })} />
+                  <input
+                    className={inputCls}
+                    placeholder="Musterfirma GmbH"
+                    value={row.name}
+                    onChange={e => handleNameChange(i, e.target.value)}
+                    onBlur={() => setTimeout(() => setNameDropdown(null), 200)}
+                    autoComplete="off"
+                  />
+                  {nameDropdown && nameDropdown.rowIdx === i && nameDropdown.results.length > 0 && (
+                    <div className="absolute z-20 top-full left-0 right-0 bg-white border border-apple-gray-3 rounded-apple shadow-lg mt-0.5 max-h-52 overflow-y-auto">
+                      {nameDropdown.results.map((s, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onMouseDown={e => { e.preventDefault(); applyNameSuggestion(i, s.name); }}
+                          className="w-full text-left px-3 py-2 hover:bg-apple-gray flex items-center gap-2 text-sm border-b border-apple-gray-2 last:border-0"
+                        >
+                          {s.logo ? (
+                            <img src={s.logo} alt="" className="w-5 h-5 rounded object-contain flex-shrink-0"
+                              onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                          ) : (
+                            <Building2 size={14} className="text-apple-text-tertiary flex-shrink-0" />
+                          )}
+                          <span className="font-medium text-apple-text truncate">{s.name}</span>
+                          {s.domain && <span className="text-[10px] text-apple-text-tertiary ml-auto flex-shrink-0">{s.domain}</span>}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="block text-[10px] text-apple-text-secondary mb-0.5">Einheit</label>
