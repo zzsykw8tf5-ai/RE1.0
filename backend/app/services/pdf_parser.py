@@ -122,15 +122,21 @@ def _find_area(text: str) -> float | None:
     return None
 
 
-# Street suffix keywords — lowercase (street names end with these in German)
-_STREET_SUFFIXES = (
-    r'straße|strasse|str\.|gasse|weg|allee|platz|ring|damm|hafen|ufer|chaussee'
+# Street suffix keywords — used with re.IGNORECASE so covers Straße/STRASSE/str./Str.
+_SUFFIX_CI = (
+    r'stra(?:ße|sse)|str\.?|gasse|weg|allee|platz|ring|damm|hafen|ufer|chaussee'
     r'|berg|steig|pfad|markt|hof|zeile|stieg|promenade|kai'
-    r'|Straße|Strasse|Gasse|Weg|Allee|Platz|Ring|Damm|Hafen|Ufer|Chaussee'
 )
-# Strict (no IGNORECASE) — only matches properly capitalized German words
-# [A-ZÄÖÜ] = uppercase start, [a-zäöüßÄÖÜ] = lowercase body (Ä/Ö/Ü for compound names)
-_STREET_WORD = r'[A-ZÄÖÜ][a-zäöüßÄÖÜ]+(?:[-][A-ZÄÖÜ]?[a-zäöüßÄÖÜ]+)*(?:\s[A-ZÄÖÜ][a-zäöüßÄÖÜ]+)*'
+
+# Street pattern: one or more word-chars/hyphens before a suffix — case-insensitive
+# Covers: "Musterstraße", "MUSTERSTRASSE", "Friedrich-Ebert-Str.", "Am Marktplatz"
+_STREET_CI = re.compile(
+    r'((?:[A-Za-z\u00c4\u00d6\u00dc\u00e4\u00f6\u00fc\u00df]'
+    r'[-A-Za-z\u00c4\u00d6\u00dc\u00e4\u00f6\u00fc\u00df]*\s*){1,4}'
+    r'(?:' + _SUFFIX_CI + r')'
+    r'(?:\s*\d{1,4}\s*[a-zA-Z]?)?)',
+    re.IGNORECASE,
+)
 
 
 def _find_provider_section_start(text: str) -> int:
@@ -153,59 +159,134 @@ def _find_provider_section_start(text: str) -> int:
     return len(text)
 
 
+def _extract_city_after_zip(text: str, zip_end: int) -> str | None:
+    """Extract city name from text starting just after a ZIP code position."""
+    after = text[zip_end:zip_end + 80]
+    # City: optional whitespace, then 1–3 capitalised words (handles "Bad Homburg", "Frankfurt am Main")
+    m = re.match(
+        r'\s*([A-Za-z\u00c4\u00d6\u00dc\u00e4\u00f6\u00fc\u00df]'
+        r'[A-Za-z\u00c4\u00d6\u00dc\u00e4\u00f6\u00fc\u00df]*'
+        r'(?:\s+[A-Za-z\u00c4\u00d6\u00dc\u00e4\u00f6\u00fc\u00df]'
+        r'[A-Za-z\u00c4\u00d6\u00dc\u00e4\u00f6\u00fc\u00df]*){0,3})',
+        after,
+    )
+    if not m:
+        return None
+    city = m.group(1).strip().rstrip(',.')
+    # Reject if city looks like a number or garbage
+    if re.match(r'^\d', city) or len(city) < 2:
+        return None
+    # Limit to 3 words
+    return ' '.join(city.split()[:3])
+
+
 def _find_full_address(text: str) -> tuple[str | None, str | None, str | None]:
-    """Find (street, zip, city) all in one combined pattern.
-    Avoids addresses that appear after the provider/contact section.
+    """Find (street, zip, city) using ZIP-anchor strategy.
+
+    Order of attempts:
+      1. Explicitly labelled address lines (expanded label set)
+      2. ZIP-anchor: find each 5-digit ZIP, look back up to 5 lines for a street suffix
+      3. Flexible forward pattern: Street[,/newline/space]ZIP City (case-insensitive)
+      4. Partial fallback: street + city without ZIP
     """
     provider_start = _find_provider_section_start(text)
-    # Search only in the object part of the document
     object_text = text[:provider_start]
 
-    # No IGNORECASE — prevents ALL-CAPS words like "EUR" or "MFH" from matching as street words
-    forward_pat = re.compile(
-        r'(' + _STREET_WORD + r'\s*(?:' + _STREET_SUFFIXES + r')\s*\d+\s*[a-zA-Z]?)'
-        r'\s*[,\n]\s*(\d{5})\s+([A-ZÄÖÜ][a-zäöüßA-ZÄÖÜ][a-zäöüß\s\-]*)',
-    )
-    reverse_pat = re.compile(
-        r'(\d{5})\s+([A-ZÄÖÜ][a-zäöüßA-ZÄÖÜ][a-zäöüß\s\-]*?)\s*[,\n]\s*'
-        r'(' + _STREET_WORD + r'\s*(?:' + _STREET_SUFFIXES + r')\s*\d+\s*[a-zA-Z]?)',
-    )
+    # ── Strategy 1: Labelled address ─────────────────────────────────────────
     labeled_pat = re.compile(
-        r'(?:Objektadresse|Adresse\s*des\s*Objekts?|Objekt(?:standort)?)\s*[:\s]\s*'
-        r'(' + _STREET_WORD + r'\s*(?:' + _STREET_SUFFIXES + r')[^\n]{0,20})',
+        r'(?:Objektadresse|Adresse\s*des\s*Objekts?|Objekt(?:standort)?'
+        r'|Anschrift|Lage|Standort|Stra[ßs]e|Adresse)\s*[:\s]\s*'
+        r'([^\n]{5,100})',
         re.IGNORECASE,
     )
-
-    # 1) Try explicit label in object section
     m = labeled_pat.search(object_text)
     if m:
-        street_raw = m.group(1).strip().rstrip(',')
-        zip_m = re.search(r'(\d{5})\s+([A-ZÄÖÜ][a-zäöüßA-ZÄÖÜ][a-zäöüß\s\-]+)', object_text[m.start():m.start()+200])
+        # Grab a generous window after the label to find ZIP + city
+        window = object_text[m.start(): m.start() + 300]
+        zip_m = re.search(
+            r'(\d{5})\s+([A-Za-z\u00c4\u00d6\u00dc\u00e4\u00f6\u00fc\u00df][A-Za-z\u00c4\u00d6\u00dc\u00e4\u00f6\u00fc\u00df\s\-]*)',
+            window,
+        )
         if zip_m:
-            return street_raw, zip_m.group(1), ' '.join(zip_m.group(2).strip().split()[:3])
+            # Street = text between label end and ZIP start, stripped
+            before_zip = window[:zip_m.start()].strip()
+            # Remove the label keyword itself if it leaked in
+            street_raw = re.sub(r'^[^A-Za-z\u00c4\u00d6\u00dc\u00e4\u00f6\u00fc\u00df]*', '', before_zip).rstrip(', ')
+            city = ' '.join(zip_m.group(2).strip().rstrip(',.').split()[:3])
+            if street_raw and 3 < len(street_raw) < 90:
+                return street_raw, zip_m.group(1), city
+        # No ZIP found near label — try to extract street from the captured line
+        line = m.group(1).strip().rstrip(',')
+        street_m = _STREET_CI.search(line)
+        if street_m:
+            street_raw = street_m.group(0).strip().rstrip(',')
+            # Look for ZIP anywhere in the window
+            zip_m2 = re.search(r'(\d{5})', window)
+            city2 = _extract_city_after_zip(window, zip_m2.end()) if zip_m2 else None
+            if 3 < len(street_raw) < 90:
+                return street_raw, zip_m2.group(1) if zip_m2 else None, city2
 
-    # 2) Forward then reverse pattern in object section
-    for pat, is_forward in [(forward_pat, True), (reverse_pat, False)]:
-        m = pat.search(object_text)
-        if m:
-            if is_forward:
-                street = m.group(1).strip().rstrip(',')
-                zip_code = m.group(2)
-                city = ' '.join(m.group(3).strip().rstrip(',. ').split()[:3])
-            else:
-                zip_code = m.group(1)
-                city = ' '.join(m.group(2).strip().rstrip(',. ').split()[:3])
-                street = m.group(3).strip().rstrip(',')
-            return street, zip_code, city
+    # ── Strategy 2: ZIP-anchor (most robust) ─────────────────────────────────
+    for zip_match in re.finditer(r'\b(\d{5})\b', object_text):
+        zip_code = zip_match.group(1)
+        zip_pos = zip_match.start()
 
-    # 3) Partial: street + city without ZIP (e.g. "Musterstraße 12, Frankfurt")
-    partial_pat = re.compile(
-        r'(' + _STREET_WORD + r'\s*(?:' + _STREET_SUFFIXES + r')\s*\d*\s*[a-zA-Z]?)'
-        r'\s*[,\n]\s*([A-ZÄÖÜ][a-zäöüß]+(?:[\s\-][A-ZÄÖÜ][a-zäöüß]+){0,2})',
+        city = _extract_city_after_zip(object_text, zip_match.end())
+        if not city:
+            continue
+
+        # Look back up to ~5 lines / 300 chars for a street suffix
+        ctx_start = max(0, zip_pos - 300)
+        context_before = object_text[ctx_start:zip_pos]
+
+        # Find all street candidates in context; take the last (closest to ZIP)
+        candidates = list(_STREET_CI.finditer(context_before))
+        if candidates:
+            best = candidates[-1]
+            street = best.group(0).strip().rstrip(', ')
+            # Sanity: reject very short / very long / all-digit
+            if 3 < len(street) < 90 and not re.match(r'^\d+$', street):
+                return street, zip_code, city
+
+        # Also check the same line as the ZIP (street and ZIP on same line)
+        lines = context_before.split('\n')
+        for line in reversed(lines):
+            sm = _STREET_CI.search(line)
+            if sm:
+                street = sm.group(0).strip().rstrip(', ')
+                if 3 < len(street) < 90:
+                    return street, zip_code, city
+                break
+
+    # ── Strategy 3: Flexible forward pattern ─────────────────────────────────
+    fwd = re.compile(
+        r'(' + r'(?:[A-Za-z\u00c4\u00d6\u00dc\u00e4\u00f6\u00fc\u00df]'
+        r'[-A-Za-z\u00c4\u00d6\u00dc\u00e4\u00f6\u00fc\u00df]*\s*){1,4}'
+        r'(?:' + _SUFFIX_CI + r')(?:\s*\d{1,4}\s*[a-zA-Z]?)?)'
+        r'[\s,\n]+(\d{5})\s+'
+        r'([A-Za-z\u00c4\u00d6\u00dc\u00e4\u00f6\u00fc\u00df][A-Za-z\u00c4\u00d6\u00dc\u00e4\u00f6\u00fc\u00df\s\-]+)',
+        re.IGNORECASE,
     )
-    m = partial_pat.search(object_text)
+    m = fwd.search(object_text)
     if m:
-        return m.group(1).strip().rstrip(','), None, m.group(2).strip().rstrip(',. ')
+        street = m.group(1).strip().rstrip(', ')
+        zip_code = m.group(2)
+        city = ' '.join(m.group(3).strip().rstrip(',. ').split()[:3])
+        return street, zip_code, city
+
+    # ── Strategy 4: Partial — street + city, no ZIP ───────────────────────────
+    partial = re.compile(
+        r'(' + r'(?:[A-Za-z\u00c4\u00d6\u00dc\u00e4\u00f6\u00fc\u00df]'
+        r'[-A-Za-z\u00c4\u00d6\u00dc\u00e4\u00f6\u00fc\u00df]*\s*){1,4}'
+        r'(?:' + _SUFFIX_CI + r')(?:\s*\d{1,4}\s*[a-zA-Z]?)?)'
+        r'\s*[,\n]\s*'
+        r'([A-Z\u00c4\u00d6\u00dc][a-z\u00e4\u00f6\u00fc\u00df]+'
+        r'(?:[\s\-][A-Z\u00c4\u00d6\u00dc][a-z\u00e4\u00f6\u00fc\u00df]+){0,2})',
+        re.IGNORECASE,
+    )
+    m = partial.search(object_text)
+    if m:
+        return m.group(1).strip().rstrip(', '), None, m.group(2).strip().rstrip(',. ')
 
     return None, None, None
 
@@ -250,8 +331,7 @@ def _find_street(text: str) -> str | None:
     """Extract street address (without ZIP/city)."""
     # Labeled patterns take priority
     labeled = [
-        r'(?:Adresse|Objektadresse|Anschrift)\s*[:\s]\s*([A-ZÄÖÜ][^\n]{5,60})',
-        r'(?:Lage|Standort)\s*[:\s]\s*([A-ZÄÖÜ][^\n]{5,60})',
+        r'(?:Adresse|Objektadresse|Anschrift|Lage|Standort|Stra[ßs]e)\s*[:\s]\s*([^\n]{5,80})',
     ]
     for pattern in labeled:
         m = re.search(pattern, text, re.IGNORECASE)
@@ -265,20 +345,10 @@ def _find_street(text: str) -> str | None:
     provider_start = _find_provider_section_start(text)
     search_text = text[:provider_start]
 
-    pattern = re.compile(
-        r'(' + _STREET_WORD + r'\s*(?:' + _STREET_SUFFIXES + r')\s*\d+\s*[a-zA-Z]?)',
-    )
-    m = pattern.search(search_text)
+    m = _STREET_CI.search(search_text)
     if m:
-        val = m.group(1).strip().rstrip(',')
+        val = m.group(0).strip().rstrip(', ')
         val = re.sub(r'\s*\d{5}\s+\S.*$', '', val).strip()
-        if 3 < len(val) < 80:
-            return val
-
-    # Street without number (fallback)
-    m = re.search(r'(' + _STREET_WORD + r'\s*(?:' + _STREET_SUFFIXES + r'))', search_text)
-    if m:
-        val = m.group(1).strip().rstrip(',')
         if 3 < len(val) < 80:
             return val
 
@@ -548,6 +618,7 @@ def parse_pdf(file_bytes: bytes) -> dict:
         "description": description,
         "agent": agent_info,
         "raw_text_length": len(text),
+        "raw_text_preview": text[:500] if text else "",
     }
 
     data_fields = ["property_name", "address", "city", "property_type", "total_area", "purchase_price"]
