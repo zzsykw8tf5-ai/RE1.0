@@ -99,8 +99,8 @@ class ImmoScoutRequest(BaseModel):
 async def import_from_immoscout(req: ImmoScoutRequest, db: Session = Depends(get_db)):
     """Fetch an ImmoScout24 listing URL and create a property from it."""
     url = req.url.strip()
-    if "immoscout24.de" not in url:
-        raise HTTPException(status_code=400, detail="Bitte einen gültigen ImmoScout24-Link einfügen (immoscout24.de/expose/...)")
+    if not any(d in url for d in ["immoscout24.de", "immobilienscout24.de"]):
+        raise HTTPException(status_code=400, detail="Bitte einen gültigen ImmoScout24-Link einfügen (immobilienscout24.de/expose/...)")
 
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -226,6 +226,31 @@ def download_template():
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=RE_Analyst_Vorlage.xlsx"},
     )
+
+
+class PropertyCreate(BaseModel):
+    name: str
+    address: str = ""
+    city: str = ""
+    zip_code: str = ""
+    property_type: str = "RESIDENTIAL"
+    construction_year: int | None = None
+    total_area_sqm: float | None = None
+    land_area_sqm: float | None = None
+    floors: int | None = None
+    units: int | None = None
+    purchase_price: float | None = None
+
+
+@router.post("/properties")
+def create_property(data: PropertyCreate, db: Session = Depends(get_db)):
+    """Create a property from manual form input."""
+    valid_cols = set(Property.__table__.columns.keys())
+    prop = Property(**{k: v for k, v in data.model_dump().items() if k in valid_cols and v is not None})
+    db.add(prop)
+    db.commit()
+    db.refresh(prop)
+    return _property_dict(prop)
 
 
 @router.get("/properties", response_model=List[dict])

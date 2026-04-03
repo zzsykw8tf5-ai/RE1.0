@@ -56,12 +56,24 @@ export const uploadPDF = (file: File): Promise<Record<string, unknown>> => {
 export const importFromImmoscout = (url: string): Promise<Property> =>
   api.post('/api/upload/immoscout', { url }).then(r => r.data);
 
+export const createProperty = (data: {
+  name: string; address?: string; city?: string; zip_code?: string;
+  property_type?: string; construction_year?: number; total_area_sqm?: number;
+  land_area_sqm?: number; floors?: number; units?: number; purchase_price?: number;
+}): Promise<Property> => api.post('/api/properties', data).then(r => r.data);
+
 export const downloadTemplate = async (): Promise<void> => {
-  if (await isBackendUp()) {
-    window.open(`${BASE_URL}/api/upload/template`, '_blank');
-  } else {
+  if (!(await isBackendUp())) {
     alert('Excel-Vorlage ist nur mit aktivem Backend verfügbar.\nBitte stelle sicher, dass RAILWAY_API_URL als GitHub Secret gesetzt ist.');
+    return;
   }
+  // Use anchor element – more reliable than window.open for file downloads
+  const a = document.createElement('a');
+  a.href = `${BASE_URL}/api/upload/template`;
+  a.download = 'RE_Analyst_Vorlage.xlsx';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 };
 
 // ---- Analysis ----
