@@ -160,6 +160,11 @@ export interface NewsItem { title: string; link: string; pubDate: string; source
 export const getNews = (q: string): Promise<{ items: NewsItem[] }> =>
   api.get('/api/news', { params: { q } }).then(r => r.data);
 
+// ---- Tenant suggestions ----
+export interface TenantSuggestion { name: string; is_company: boolean; }
+export const suggestTenants = (address: string, city: string = ''): Promise<{ suggestions: TenantSuggestion[] }> =>
+  api.get('/api/suggest-tenants', { params: { address, city } }).then(r => r.data);
+
 // ---- Demo mode: lightweight scenario simulation ----
 function _applyScenarioToDemoData(base: DCFResult, params: Record<string, number>): DCFResult {
   const rentGrowth = params.rent_growth_rate ?? 0.02;

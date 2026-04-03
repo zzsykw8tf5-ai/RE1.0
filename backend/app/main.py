@@ -53,4 +53,18 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "service": "RE Analyst Pro"}
+    from .database import DATABASE_URL, IS_SQLITE
+    import warnings
+    db_type = "sqlite" if IS_SQLITE else "postgresql"
+    if IS_SQLITE and os.environ.get("RAILWAY_ENVIRONMENT"):
+        warnings.warn(
+            "SQLite detected on Railway – data will be lost on redeploy. "
+            "Add a PostgreSQL plugin in Railway and set DATABASE_URL.",
+            RuntimeWarning,
+        )
+    return {
+        "status": "ok",
+        "service": "RE Analyst Pro",
+        "db": db_type,
+        "db_persistent": not IS_SQLITE,
+    }

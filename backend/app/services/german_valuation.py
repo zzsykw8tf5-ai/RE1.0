@@ -437,26 +437,38 @@ def combined_valuation(params: dict) -> dict:
         gewichtung_vergleichswert (float): Weight for comparison method (default 0.3)
         gewichtung_sachwert (float): Weight for cost method (default 0.1)
     """
-    # Default weights for commercial property (Ertragswert dominates)
+    # Weights per ImmoWertV 2021 practice:
+    # Gewerbe → Ertragswert dominant
+    # Wohnen  → Vergleichswert dominant
+    # Industrie/Sonstige → Sachwert dominant
     property_type = params.get("property_type", "OFFICE")
 
     if property_type == "RESIDENTIAL":
+        # Vergleichswertverfahren ist Leitverfahren für Wohnimmobilien
         default_weights = {
-            "ertragswert": 0.4,
-            "vergleichswert": 0.5,
-            "sachwert": 0.1,
+            "ertragswert": 0.25,
+            "vergleichswert": 0.65,
+            "sachwert": 0.10,
         }
     elif property_type in ("INDUSTRIAL",):
+        # Sachwertverfahren ist Leitverfahren für Industrie / Sonderimmobilien
         default_weights = {
-            "ertragswert": 0.5,
-            "vergleichswert": 0.2,
-            "sachwert": 0.3,
+            "ertragswert": 0.30,
+            "vergleichswert": 0.15,
+            "sachwert": 0.55,
+        }
+    elif property_type in ("OFFICE", "RETAIL", "MIXED"):
+        # Ertragswertverfahren ist Leitverfahren für Gewerbeimmobilien
+        default_weights = {
+            "ertragswert": 0.70,
+            "vergleichswert": 0.20,
+            "sachwert": 0.10,
         }
     else:
         default_weights = {
-            "ertragswert": 0.6,
-            "vergleichswert": 0.3,
-            "sachwert": 0.1,
+            "ertragswert": 0.60,
+            "vergleichswert": 0.25,
+            "sachwert": 0.15,
         }
 
     w_ertrag = float(params.get("gewichtung_ertragswert", default_weights["ertragswert"]))

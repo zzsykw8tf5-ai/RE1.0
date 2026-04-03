@@ -2,12 +2,15 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ChevronRight, ChevronLeft, Plus, Trash2,
-  TrendingUp, Info, CheckCircle2, AlertCircle, Building2,
+  TrendingUp, Info, CheckCircle2, AlertCircle, Building2, Search,
 } from 'lucide-react';
 import TopBar from '../components/Layout/TopBar';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
-import { getProperty, getMarketData, addTenant, deleteTenant } from '../services/api';
+import { getProperty, getMarketData, addTenant, deleteTenant, suggestTenants } from '../services/api';
 import type { Property, Tenant } from '../types';
+import type { TenantSuggestion } from '../services/api';
+
+const COMMERCIAL_TYPES = ['OFFICE', 'RETAIL', 'INDUSTRIAL', 'MIXED'];
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -138,6 +141,10 @@ function TenantStep({
   onNext: () => void;
 }) {
   const [rows, setRows] = useState<TenantRow[]>([emptyTenant()]);
+  const [suggestions, setSuggestions] = useState<TenantSuggestion[]>([]);
+  const [suggestLoading, setSuggestLoading] = useState(false);
+
+  const isCommercial = COMMERCIAL_TYPES.includes(property.property_type);
 
   const totalAnnualRent = savedTenants.reduce((s, t) => s + (t.annual_rent || 0), 0);
   const totalArea = savedTenants.reduce((s, t) => s + (t.area_sqm || 0), 0);
@@ -145,6 +152,30 @@ function TenantStep({
 
   const updateRow = (i: number, patch: Partial<TenantRow>) =>
     setRows(rs => rs.map((r, idx) => idx === i ? { ...r, ...patch } : r));
+
+  const handleSuggestTenants = async () => {
+    if (!property.address) return;
+    setSuggestLoading(true);
+    try {
+      const res = await suggestTenants(property.address, property.city ?? '');
+      setSuggestions(res.suggestions);
+    } catch {
+      setSuggestions([]);
+    } finally {
+      setSuggestLoading(false);
+    }
+  };
+
+  const applySuggestion = (name: string) => {
+    // Fill the first empty row or add a new one
+    const emptyIdx = rows.findIndex(r => !r.name && !r.saved);
+    if (emptyIdx >= 0) {
+      updateRow(emptyIdx, { name });
+    } else {
+      setRows(rs => [...rs, { ...emptyTenant(), name }]);
+    }
+    setSuggestions(prev => prev.filter(s => s.name !== name));
+  };
 
   const suggestRent = useCallback((areaStr: string): string => {
     if (!market || !areaStr) return '';
@@ -310,6 +341,36 @@ function TenantStep({
           </div>
         ))}
       </div>
+
+      {/* Tenant suggestions from address (commercial only) */}
+      {isCommercial && property.address && (
+        <div className="mb-4">
+          <button
+            onClick={handleSuggestTenants}
+            disabled={suggestLoading}
+            className="btn-secondary text-xs flex items-center gap-1.5 disabled:opacity-50"
+          >
+            {suggestLoading ? <LoadingSpinner /> : <Search size={12} />}
+            Mieter aus Adresse suchen
+          </button>
+          {suggestions.length > 0 && (
+            <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-apple">
+              <div className="text-[10px] font-semibold text-apple-blue mb-2 uppercase tracking-wide">
+                Gefundene Unternehmen an {property.address} – klicken zum Übernehmen
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {suggestions.map((s, i) => (
+                  <button key={i} onClick={() => applySuggestion(s.name)}
+                    className="px-2.5 py-1 text-xs rounded-full bg-white border border-blue-300 text-apple-text hover:bg-blue-100 transition-colors flex items-center gap-1">
+                    {s.is_company && <Building2 size={10} className="text-apple-blue" />}
+                    {s.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Action buttons */}
       <div className="flex flex-wrap gap-2 mb-8">

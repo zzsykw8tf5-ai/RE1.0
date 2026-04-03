@@ -344,33 +344,34 @@ def _lookup_city_data(city: str, zip_code: str | None = None) -> dict:
 def _micro_analysis(city_data: dict, zip_code: str | None, property_type: str) -> dict:
     """
     Generate micro-location analysis based on city tier and zip code.
+    Scores are adjusted per property Nutzungsart (use type).
     """
     tier = city_data.get("tier", "C-Stadt")
     base_scores = {
-        "A-Stadt": {
-            "neighborhood_rating": 7.5,
-            "public_transport_score": 8.5,
-            "amenities_score": 8.0,
-            "walkability_score": 7.8,
-        },
-        "B-Stadt": {
-            "neighborhood_rating": 6.5,
-            "public_transport_score": 7.0,
-            "amenities_score": 6.5,
-            "walkability_score": 6.5,
-        },
-        "C-Stadt": {
-            "neighborhood_rating": 5.0,
-            "public_transport_score": 5.0,
-            "amenities_score": 5.0,
-            "walkability_score": 5.0,
-        },
+        "A-Stadt": {"neighborhood_rating": 7.5, "public_transport_score": 8.5, "amenities_score": 8.0, "walkability_score": 7.8},
+        "B-Stadt": {"neighborhood_rating": 6.5, "public_transport_score": 7.0, "amenities_score": 6.5, "walkability_score": 6.5},
+        "C-Stadt": {"neighborhood_rating": 5.0, "public_transport_score": 5.0, "amenities_score": 5.0, "walkability_score": 5.0},
     }
 
     scores = base_scores.get(tier, base_scores["C-Stadt"]).copy()
 
-    # Estimate vacancy rate for area based on property type
-    cap_rates = city_data.get("typical_cap_rates", {})
+    # Nutzungsart-spezifische Score-Anpassungen
+    adjustments = {
+        # Büro: ÖPNV-Anbindung und Wirtschaftsstandort besonders wichtig
+        "OFFICE": {"public_transport_score": +0.5, "amenities_score": +0.3, "walkability_score": 0},
+        # Einzelhandel: Fußgängerpotenzial, Frequenz, Nahversorgung
+        "RETAIL": {"amenities_score": +0.8, "walkability_score": +1.0, "public_transport_score": +0.3},
+        # Wohnen: Wohnqualität, Grünflächen, soziale Infrastruktur
+        "RESIDENTIAL": {"neighborhood_rating": +0.5, "amenities_score": +0.2, "walkability_score": +0.3},
+        # Industrie/Logistik: Straßenanbindung statt ÖPNV
+        "INDUSTRIAL": {"public_transport_score": -1.0, "amenities_score": -0.5, "neighborhood_rating": -0.5},
+        # Gemischt: moderate Anpassung
+        "MIXED": {"public_transport_score": +0.2, "amenities_score": +0.2},
+    }
+    for key, delta in adjustments.get(property_type, {}).items():
+        scores[key] = round(min(10.0, max(1.0, scores.get(key, 5.0) + delta)), 1)
+
+    # Vacancy estimates by type
     vacancy_estimates = {
         "A-Stadt": {"RESIDENTIAL": 1.5, "OFFICE": 5.0, "RETAIL": 6.0, "INDUSTRIAL": 4.0, "MIXED": 4.5},
         "B-Stadt": {"RESIDENTIAL": 3.0, "OFFICE": 8.0, "RETAIL": 9.0, "INDUSTRIAL": 6.0, "MIXED": 7.0},
@@ -378,28 +379,52 @@ def _micro_analysis(city_data: dict, zip_code: str | None, property_type: str) -
     }
     vacancy_rate = vacancy_estimates.get(tier, vacancy_estimates["C-Stadt"]).get(property_type, 8.0)
 
-    # Rent level context
+    cap_rates = city_data.get("typical_cap_rates", {})
     rent_keys = {
         "OFFICE": "typical_rent_office_sqm",
         "RETAIL": "typical_rent_retail_sqm",
         "RESIDENTIAL": "typical_rent_resi_sqm",
-        "INDUSTRIAL": "typical_rent_office_sqm",  # fallback
+        "INDUSTRIAL": "typical_rent_office_sqm",
         "MIXED": "typical_rent_office_sqm",
     }
-    rent_key = rent_keys.get(property_type, "typical_rent_office_sqm")
-    typical_rent = city_data.get(rent_key, 0)
+    typical_rent = city_data.get(rent_keys.get(property_type, "typical_rent_office_sqm"), 0)
 
-    development_potential = {
-        "A-Stadt": "hoch – starke Nachfrage, begrenzte Neubauflächen",
-        "B-Stadt": "mittel – wachsender Markt mit Aufholpotenzial",
-        "C-Stadt": "begrenzt – Leerstandsrisiken, selektive Nachfrage",
-    }.get(tier, "unbekannt")
+    development_potential_map = {
+        "OFFICE": {
+            "A-Stadt": "hoch – starke Core-Nachfrage, Engpass bei ESG-konformen Flächen",
+            "B-Stadt": "mittel – wachsende Nachfrage, Mietpreispotenzial vorhanden",
+            "C-Stadt": "begrenzt – selektive Nachfrage, Leerstandsrisiken in Randlagen",
+        },
+        "RETAIL": {
+            "A-Stadt": "mittel – 1A-Lagen stabil, Herausforderungen im Mittelfeld",
+            "B-Stadt": "begrenzt – Strukturwandel trifft B-Städte stärker",
+            "C-Stadt": "gering – E-Commerce-Druck und Frequenzrückgang",
+        },
+        "RESIDENTIAL": {
+            "A-Stadt": "sehr hoch – akuter Wohnraummangel, Neubau begrenzt",
+            "B-Stadt": "hoch – Zuzug aus A-Städten, Mietpreisanstieg",
+            "C-Stadt": "mittel – Nachfragerückgang in schrumpfenden Märkten",
+        },
+        "INDUSTRIAL": {
+            "A-Stadt": "hoch – E-Commerce, Nearshoring, Flächenknappheit",
+            "B-Stadt": "hoch – gute Autobahnanbindung, günstigere Grundstücke als A-Stadt",
+            "C-Stadt": "mittel – Flächenverfügbarkeit vorhanden, Nachfrage selektiv",
+        },
+        "MIXED": {
+            "A-Stadt": "hoch – Diversifikation schützt vor sektoralen Risiken",
+            "B-Stadt": "mittel – Wohn-/Gewerbeanteil entscheidend für Stabilität",
+            "C-Stadt": "begrenzt – Mischnutzung benötigt starken Wohnanteil",
+        },
+    }
+    development_potential = development_potential_map.get(property_type, {}).get(
+        tier, "Entwicklungspotenzial abhängig von Mikrolage und Objektqualität"
+    )
 
     return {
-        "neighborhood_rating": round(scores["neighborhood_rating"], 1),
-        "public_transport_score": round(scores["public_transport_score"], 1),
-        "amenities_score": round(scores["amenities_score"], 1),
-        "walkability_score": round(scores["walkability_score"], 1),
+        "neighborhood_rating": scores["neighborhood_rating"],
+        "public_transport_score": scores["public_transport_score"],
+        "amenities_score": scores["amenities_score"],
+        "walkability_score": scores["walkability_score"],
         "vacancy_rate_area_pct": vacancy_rate,
         "typical_rent_sqm": typical_rent,
         "rent_level_comparison": (
@@ -412,6 +437,73 @@ def _micro_analysis(city_data: dict, zip_code: str | None, property_type: str) -
     }
 
 
+_TYPE_RISKS: dict[str, list[str]] = {
+    "OFFICE": [
+        "Homeoffice-Trend: Flächennachfrage differenziert sich stark nach Qualität und Lage",
+        "Flex-Work erhöht Bedarf an flexiblen Mietstrukturen (Laufzeiten, Flächen)",
+        "ESG-Pflicht: Nicht-zertifizierte Flächen drohen Mieter-Abwanderung (Stranded Assets)",
+        "Büroleerstand in Randlagen steigt, CBD-Lagen polarisieren",
+    ],
+    "RETAIL": [
+        "Strukturwandel durch E-Commerce: Frequenzrückgang in Nicht-1A-Lagen",
+        "Insolvenzrisiko von Filialisten erhöht Mietausfallgefahr",
+        "Steigende Leerstände in B-/C-Lagen erzwingen Drittverwendungskonzepte",
+        "Anker-Mieter-Abgang kann Dominoeffekt auf Bestandsmieter auslösen",
+        "Mietfreie Zeiten und Incentives belasten effektive Rendite",
+    ],
+    "RESIDENTIAL": [
+        "Mietpreisbremse und Kappungsgrenzen (§ 558 BGB) limitieren Mieterhöhungen",
+        "Energetische Modernisierungspflichten (GEG 2024) erfordern Capex-Planung",
+        "Erhöhtes Mieterausfallrisiko in wirtschaftlich schwächeren Lagen",
+        "Sozialer Wandel der Nachbarschaft kann Mietpreisentwicklung beeinflussen",
+    ],
+    "INDUSTRIAL": [
+        "Infrastrukturkosten für Schwerindustrie (Strom, Wasser, Entsorgung)",
+        "Umweltauflagen und Genehmigungsrisiken bei Bestandsveränderungen",
+        "Arbeitskräftemangel in der Region kann Mieter-Expansion bremsen",
+        "Altlastenrisiken bei Brownfield-Standorten (Due-Diligence-Pflicht)",
+        "Abhängigkeit von einzelnen Ankermietern erhöht Klumpenrisiko",
+    ],
+    "MIXED": [
+        "Nutzungskonflikt zwischen Wohn- und Gewerbemietern (Lärm, Zugang)",
+        "Regulatorische Komplexität: Verschiedene Mietrechtsregimes gleichzeitig",
+        "Segmentspezifische Risiken addieren sich (Retail + Office + Wohnen)",
+    ],
+}
+
+_TYPE_OPPORTUNITIES: dict[str, list[str]] = {
+    "OFFICE": [
+        "Core-Lagen: Nachfrage von Corporates nach repräsentativen Headquartern stabil",
+        "ESG-Premium: Zertifizierte Flächen erzielen 10–20 % Mietaufschlag",
+        "Coworking/Flex-Office als Ergänzungsnutzung erhöht Flächenauslastung",
+        "Refurbishment älterer Flächen kann signifikante Wertsteigerung generieren",
+    ],
+    "RETAIL": [
+        "Lebensmitteleinzelhandel und Nahversorgung zeigen hohe Resilienz",
+        "Click & Collect und stationäres Erlebniskonzept stärken Frequenz",
+        "Last-Mile-Logistik als alternative Nutzung in Randlagen möglich",
+        "Gastronomie und Freizeitnutzung als Frequenztreiber etablieren",
+    ],
+    "RESIDENTIAL": [
+        "Akuter Wohnraummangel in Ballungszentren sichert langfristige Nachfrage",
+        "KfW-Förderprogramme für energetische Sanierung nutzbar",
+        "Mietanpassungen nach Modernisierung gemäß § 559 BGB möglich",
+        "Eigennutzermarkt als zusätzlicher Exit-Kanal (ETW-Umwandlung prüfbar)",
+    ],
+    "INDUSTRIAL": [
+        "E-Commerce-Wachstum treibt Logistikflächennachfrage nachhaltig",
+        "Nearshoring-Trend erhöht Nachfrage nach innerstädtischen Produktionsflächen",
+        "Renewables: Dachflächen für PV-Anlagen monetarisierbar",
+        "Geringe Verwaltungsintensität bei bonitätsstarken Mietern",
+    ],
+    "MIXED": [
+        "Diversifikation über Nutzungsarten reduziert sektorale Klumpenrisiken",
+        "Wohn-/Gewerbeanteil anpassbar je nach Marktlage (Umwidmungsoption)",
+        "Breitere Investorenbasis durch Mischnutzung erhöht Exit-Optionen",
+    ],
+}
+
+
 def _identify_risks(city_data: dict, property_type: str) -> list[str]:
     """Generate risk factors based on city data and property type."""
     risks = []
@@ -419,19 +511,14 @@ def _identify_risks(city_data: dict, property_type: str) -> list[str]:
     unemployment = city_data.get("unemployment_rate", 8.0)
     market_trend = city_data.get("real_estate_market_trend", "neutral")
 
+    # Nutzungsart-spezifische Risiken zuerst
+    risks.extend(_TYPE_RISKS.get(property_type, [])[:3])
+
     if tier == "C-Stadt":
-        risks.append("Leerstandsrisiko durch strukturellen Nachfragerückgang")
         risks.append("Begrenzte Exit-Möglichkeiten durch dünnen Investitionsmarkt")
 
     if unemployment > 9:
-        risks.append(f"Erhöhte Arbeitslosigkeit ({unemployment}%) belastet Mieternachfrage")
-
-    if property_type == "RETAIL":
-        risks.append("Strukturwandel im Einzelhandel durch E-Commerce-Wachstum")
-        risks.append("Steigende Leerstände in B-/C-Lagen des Einzelhandels")
-
-    if property_type == "OFFICE":
-        risks.append("Homeoffice-Trend erhöht Flächeneffizienz, Nachfrage nach Qualitätsflächen differenziert")
+        risks.append(f"Erhöhte Arbeitslosigkeit ({unemployment:.1f}%) belastet Mieternachfrage")
 
     if market_trend in ("negativ", "rückläufig"):
         risks.append("Aktueller Markttrend zeigt Preiskorrektur")
@@ -442,7 +529,7 @@ def _identify_risks(city_data: dict, property_type: str) -> list[str]:
     risks.append("Steigende Zinsen erhöhen Refinanzierungsrisiken")
     risks.append("GEG 2024: ESG-Anforderungen erfordern energetische Investitionen")
 
-    return risks[:6]  # Cap at 6 risks
+    return risks[:6]
 
 
 def _identify_opportunities(city_data: dict, property_type: str) -> list[str]:
@@ -451,27 +538,21 @@ def _identify_opportunities(city_data: dict, property_type: str) -> list[str]:
     tier = city_data.get("tier", "C-Stadt")
     population_trend = city_data.get("population_trend", "stabil")
 
+    # Nutzungsart-spezifische Chancen zuerst
+    opportunities.extend(_TYPE_OPPORTUNITIES.get(property_type, [])[:2])
+
     if tier == "A-Stadt":
-        opportunities.append("A-Stadt-Lage mit stabiler institutioneller Nachfrage")
-        opportunities.append("Internationale Investoren erhöhen Liquidität und Exit-Optionen")
+        opportunities.append("A-Stadt-Lage: institutionelle Nachfrage und internationale Liquidität")
 
     if "wachsend" in population_trend:
-        opportunities.append(f"Bevölkerungswachstum ({population_trend}) stützt Mieternachfrage langfristig")
-
-    if property_type == "RESIDENTIAL":
-        opportunities.append("Wohnraummangel in Ballungszentren stützt Mietpreisentwicklung")
-
-    if property_type == "INDUSTRIAL":
-        opportunities.append("E-Commerce-Boom treibt Nachfrage nach Logistikflächen")
-        opportunities.append("Nearshoring-Trend erhöht Industrieflächennachfrage")
+        opportunities.append(f"Bevölkerungswachstum ({population_trend}) stützt langfristige Mieternachfrage")
 
     if tier == "B-Stadt":
-        opportunities.append("B-Stadt-Investments bieten attraktive Risk-Return-Profile")
-        opportunities.append("Nachholpotenzial gegenüber A-Städten bei weiterer Urbanisierung")
+        opportunities.append("B-Stadt: attraktives Risk-Return-Profil mit Aufholpotenzial")
 
     opportunities.append("ESG-konforme Objekte erzielen Premiummieten und niedrigere Leerstandsquoten")
 
-    return opportunities[:5]  # Cap at 5 opportunities
+    return opportunities[:5]
 
 
 def _calculate_overall_score(city_data: dict, micro: dict, property_type: str) -> int:
@@ -511,11 +592,11 @@ def _generate_recommendation(overall_score: int, city_data: dict, property_type:
         base = "Erhöhte Standortrisiken – konservative Bewertungsansätze empfohlen."
 
     type_comment = {
-        "OFFICE": f" Für Büroimmobilien gilt: Qualität und Flexibilität der Flächen sind entscheidend ({tier}-Lage).",
-        "RETAIL": f" Einzelhandelsflächen in {tier}-Lagen profitieren von starker Fußfrequenz und Einzugsgebiet.",
-        "RESIDENTIAL": f" Wohnimmobilien in {tier}-Städten bieten {market_trend.replace('sehr ', '').replace(' ', '')} Mietpreisentwicklung.",
-        "INDUSTRIAL": f" Logistik-/Industriestandort mit {market_trend} Marktdynamik.",
-        "MIXED": f" Gemischt genutzte Objekte bieten Diversifikation im {tier}-Markt.",
+        "OFFICE": f" Büroimmobilie in {tier}: ESG-Konformität und ÖPNV-Anbindung sind Schlüsselfaktoren. Fokus auf Flächenqualität und Flex-Optionen.",
+        "RETAIL": f" Einzelhandelsobjekt in {tier}: Mieterbonitäts-Mix und Frequenzanbindung entscheidend. E-Commerce-Resilienz prüfen.",
+        "RESIDENTIAL": f" Wohnimmobilie in {tier}: Mietpreisregulierung beachten. Energetischer Zustand bestimmt Modernisierungsbedarf.",
+        "INDUSTRIAL": f" Industrie-/Logistikimmobilie: Autobahn-/Schienenanbindung und Flächenzuschnitt sind Kernkriterien.",
+        "MIXED": f" Mischnutzung in {tier}: Nutzungsanteile und Regulatorik sorgfältig prüfen.",
     }.get(property_type, "")
 
     return base + type_comment
@@ -584,6 +665,47 @@ def analyze_location(params: dict) -> dict:
         "gesamt": overall_score,
     }
 
+    # Nutzungsart-spezifische Kennzahlen für die Standortanalyse
+    nutzungsart_label = {
+        "OFFICE": "Büroimmobilie",
+        "RETAIL": "Einzelhandelsimmobilie",
+        "RESIDENTIAL": "Wohnimmobilie",
+        "INDUSTRIAL": "Industrie-/Logistikimmobilie",
+        "MIXED": "Mischnutzungsimmobilie",
+    }.get(property_type, property_type)
+
+    nutzungsart_kpis = {
+        "OFFICE": {
+            "leitverfahren_standort": "ÖPNV-Score, CBD-Nähe, Büroleerstand",
+            "typische_leerstandsquote": f"{micro_analysis['vacancy_rate_area_pct']:.1f}% (Büro, {tier})",
+            "typische_buerorendite": f"{city_data.get('typical_cap_rates', {}).get('OFFICE', 4.5):.1f}%",
+            "bueroflaeche_leerstand_trend": "differenziert: Core stabil, Peripherie steigend",
+        },
+        "RETAIL": {
+            "leitverfahren_standort": "Passantenfrequenz, Einzugsgebiet, 1A-Lage-Anteil",
+            "typische_leerstandsquote": f"{micro_analysis['vacancy_rate_area_pct']:.1f}% (Retail, {tier})",
+            "typische_rendite": f"{city_data.get('typical_cap_rates', {}).get('RETAIL', 5.5):.1f}%",
+            "frequenzanbindung": "hoch" if tier == "A-Stadt" else "mittel" if tier == "B-Stadt" else "begrenzt",
+        },
+        "RESIDENTIAL": {
+            "leitverfahren_standort": "Wohnlagequalität, Demografie, Mietpreisindex",
+            "typische_leerstandsquote": f"{micro_analysis['vacancy_rate_area_pct']:.1f}% (Wohnen, {tier})",
+            "typische_wohnrendite": f"{city_data.get('typical_cap_rates', {}).get('RESIDENTIAL', 3.5):.1f}%",
+            "mietpreisregulierung": "Mietpreisbremse gilt in angespannten Märkten (§ 556d BGB)",
+        },
+        "INDUSTRIAL": {
+            "leitverfahren_standort": "Logistikanbindung, Autobahn, Arbeitskräfte",
+            "typische_leerstandsquote": f"{micro_analysis['vacancy_rate_area_pct']:.1f}% (Industrie, {tier})",
+            "strassennetz_bewertung": "A-Stadt: sehr gut" if tier == "A-Stadt" else "B-Stadt: gut" if tier == "B-Stadt" else "C-Stadt: ausreichend",
+            "e_commerce_relevanz": "hoch – Last-Mile-Logistik wächst",
+        },
+        "MIXED": {
+            "leitverfahren_standort": "Kombination aus Wohn- und Gewerbeindikatoren",
+            "typische_leerstandsquote": f"{micro_analysis['vacancy_rate_area_pct']:.1f}% (Gemischt, {tier})",
+            "nutzungsanteile_empfehlung": "Wohnanteil > 50% für geringeres Gesamtrisiko empfohlen",
+        },
+    }.get(property_type, {})
+
     return {
         "standort": {
             "city": city,
@@ -598,5 +720,12 @@ def analyze_location(params: dict) -> dict:
         "overall_score": overall_score,
         "score_breakdown": score_breakdown,
         "recommendation": recommendation,
+        "nutzungsart_analyse": {
+            "nutzungsart": nutzungsart_label,
+            "property_type": property_type,
+            "kpis": nutzungsart_kpis,
+            "typ_risiken": _TYPE_RISKS.get(property_type, []),
+            "typ_chancen": _TYPE_OPPORTUNITIES.get(property_type, []),
+        },
         "data_source": "Internes Referenzdatenbankmodell (Stand 2024) – für professionelle Gutachten externe Marktdaten heranziehen.",
     }

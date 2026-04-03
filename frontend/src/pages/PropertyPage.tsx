@@ -79,9 +79,24 @@ export default function PropertyPage() {
       <div className="px-8 pt-6">
         <div className="card mb-0 rounded-b-none border-b-0">
           <div className="flex items-start gap-6">
-            <div className="w-14 h-14 rounded-apple-lg flex items-center justify-center text-white text-xl font-bold flex-shrink-0" style={{ background: 'linear-gradient(135deg, #0066CC, #0055A5)' }}>
-              {property.name.charAt(0)}
-            </div>
+            {/* Mini Street View / Map thumbnail */}
+            {property.address || property.city ? (
+              <div className="w-14 h-14 rounded-apple-lg overflow-hidden flex-shrink-0 relative">
+                <iframe
+                  title="Objektkarte"
+                  src={`https://maps.google.com/maps?q=${encodeURIComponent([property.address, property.zip_code, property.city].filter(Boolean).join(', '))}&output=embed&z=17`}
+                  width="120"
+                  height="120"
+                  style={{ border: 0, marginLeft: '-3px', marginTop: '-3px', pointerEvents: 'none' }}
+                  loading="lazy"
+                  referrerPolicy="no-referrer-when-downgrade"
+                />
+              </div>
+            ) : (
+              <div className="w-14 h-14 rounded-apple-lg flex items-center justify-center text-white text-xl font-bold flex-shrink-0" style={{ background: 'linear-gradient(135deg, #0066CC, #0055A5)' }}>
+                {property.name.charAt(0)}
+              </div>
+            )}
             <div className="flex-1 min-w-0">
               <div className="flex items-start gap-3 flex-wrap">
                 <span className="badge badge-blue">{propertyTypeLabel(property.property_type)}</span>
