@@ -75,6 +75,7 @@ export const runUSValuation = async (propertyId: number, params?: Record<string,
 
 export const runDCF = async (propertyId: number, params?: Record<string, number>): Promise<DCFResult> => {
   if (await isBackendUp()) return api.post(`/api/analysis/dcf/${propertyId}`, params || {}).then(r => r.data);
+  // Apply scenario params to demo data for interactive sliders
   const base = DEMO_ANALYSIS.dcf;
   if (params && Object.keys(params).length > 0) return _applyScenarioToDemoData(base, params);
   return base;
@@ -140,6 +141,7 @@ function _applyScenarioToDemoData(base: DCFResult, params: Record<string, number
     return { ...cf, gross_income: grossIncome, vacancy_loss: vacancyLoss, effective_income: effIncome, operating_expenses: opex, noi, debt_service: Math.round(debtService), capex: Math.round(capex), cash_flow_before_tax: Math.round(cfbt), noi_yield: +(noi / purchasePrice * 100).toFixed(2) };
   });
 
+  // Cumulative CF
   let cum = 0;
   cfs.forEach(cf => { cum += cf.cash_flow_before_tax; cf.cumulative_cf = Math.round(cum); });
 
@@ -150,6 +152,7 @@ function _applyScenarioToDemoData(base: DCFResult, params: Record<string, number
   cashFlows[cashFlows.length - 1] += saleProceeds;
   const totalEquityReturn = Math.round(cashFlows.slice(1).reduce((a, b) => a + b, 0));
 
+  // Simple IRR (Newton)
   let irr = 0.08;
   for (let i = 0; i < 100; i++) {
     const npvV = cashFlows.reduce((s, c, j) => s + c / Math.pow(1 + irr, j), 0);

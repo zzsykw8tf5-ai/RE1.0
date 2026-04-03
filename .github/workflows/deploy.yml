@@ -37,6 +37,9 @@ jobs:
         run: npm run build
         env:
           NODE_ENV: production
+          # Wenn RAILWAY_API_URL als GitHub Secret gesetzt ist,
+          # verbindet sich die App mit dem echten Backend.
+          # Sonst läuft die App im Demo-Modus.
           VITE_API_URL: ${{ secrets.RAILWAY_API_URL }}
 
       - name: Setup Pages
