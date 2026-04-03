@@ -62,7 +62,6 @@ export default function PortfolioPage() {
           </div>
         ) : (
           <div className="space-y-6 animate-fade-in">
-            {/* Summary */}
             <div className="grid grid-cols-4 gap-4">
               {[
                 { label: 'Objekte', value: properties.length },
@@ -77,22 +76,13 @@ export default function PortfolioPage() {
               ))}
             </div>
 
-            {/* Charts */}
             <div className="grid grid-cols-2 gap-6">
               <div className="card">
                 <h3 className="font-semibold text-apple-text mb-4">Nutzungsarten (nach Wert)</h3>
                 {pieData.length > 0 ? (
                   <ResponsiveContainer width="100%" height={220}>
                     <PieChart>
-                      <Pie
-                        data={pieData}
-                        cx="50%" cy="50%"
-                        innerRadius={60} outerRadius={90}
-                        paddingAngle={3}
-                        dataKey="value"
-                        label={false}
-                        labelLine={false}
-                      >
+                      <Pie data={pieData} cx="50%" cy="50%" innerRadius={60} outerRadius={90} paddingAngle={3} dataKey="value" label={false} labelLine={false}>
                         {pieData.map((_, i) => (
                           <Cell key={i} fill={Object.values(TYPE_COLORS)[i % 5]} />
                         ))}
@@ -118,7 +108,6 @@ export default function PortfolioPage() {
               </div>
             </div>
 
-            {/* Table */}
             <div className="card overflow-x-auto">
               <h3 className="font-semibold text-apple-text mb-4">Alle Objekte</h3>
               {properties.length === 0 ? (
@@ -137,33 +126,22 @@ export default function PortfolioPage() {
                   </thead>
                   <tbody>
                     {properties.map(p => (
-                      <tr
-                        key={p.id}
-                        className="border-b border-apple-gray-2 last:border-0 hover:bg-apple-gray cursor-pointer group"
-                        onClick={() => navigate(`/property/${p.id}`)}
-                      >
+                      <tr key={p.id} className="border-b border-apple-gray-2 last:border-0 hover:bg-apple-gray cursor-pointer group" onClick={() => navigate(`/property/${p.id}`)}>
                         <td className="py-3">
                           <div className="flex items-center gap-2">
-                            <div
-                              className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
-                              style={{ backgroundColor: TYPE_COLORS[p.property_type] || '#6E6E73' }}
-                            >
+                            <div className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-xs font-bold flex-shrink-0" style={{ backgroundColor: TYPE_COLORS[p.property_type] || '#6E6E73' }}>
                               {p.name.charAt(0)}
                             </div>
                             <span className="font-medium text-apple-text">{p.name}</span>
                           </div>
                         </td>
                         <td className="py-3 text-apple-text-secondary">{p.city}</td>
-                        <td className="py-3">
-                          <span className="badge badge-blue">{propertyTypeLabel(p.property_type)}</span>
-                        </td>
+                        <td className="py-3"><span className="badge badge-blue">{propertyTypeLabel(p.property_type)}</span></td>
                         <td className="py-3 text-apple-text-secondary">{formatSqm(p.total_area_sqm)}</td>
                         <td className="py-3 text-apple-text-secondary">{p.units}</td>
                         <td className="py-3 font-medium text-apple-text">{formatEur(p.purchase_price)}</td>
                         <td className="py-3 text-apple-text-secondary">{p.construction_year}</td>
-                        <td className="py-3">
-                          <ArrowRight size={14} className="text-apple-text-tertiary opacity-0 group-hover:opacity-100 transition-opacity" />
-                        </td>
+                        <td className="py-3"><ArrowRight size={14} className="text-apple-text-tertiary opacity-0 group-hover:opacity-100 transition-opacity" /></td>
                       </tr>
                     ))}
                   </tbody>
