@@ -488,11 +488,11 @@ export default function UploadPage() {
                   onCancel={() => { setPdfExtracted(null); setPdfState('idle'); }}
                 />
                 {/* Extracted rent data */}
-                {(pdfExtracted.annual_rent || pdfExtracted.monthly_rent) && (
+                {(pdfExtracted.annual_rent != null || pdfExtracted.monthly_rent != null) && (
                   <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-apple text-xs">
                     <div className="font-medium text-apple-green mb-1">Erkannte Mietdaten (für Onboarding vorgemerkt)</div>
-                    {pdfExtracted.annual_rent && <div>Jahresmiete: <span className="font-semibold">{Number(pdfExtracted.annual_rent).toLocaleString('de-DE')} €</span></div>}
-                    {pdfExtracted.monthly_rent && <div>Monatliche Miete: <span className="font-semibold">{Number(pdfExtracted.monthly_rent).toLocaleString('de-DE')} €</span></div>}
+                    {pdfExtracted.annual_rent != null && <div>Jahresmiete: <span className="font-semibold">{Number(pdfExtracted.annual_rent as number).toLocaleString('de-DE')} €</span></div>}
+                    {pdfExtracted.monthly_rent != null && <div>Monatliche Miete: <span className="font-semibold">{Number(pdfExtracted.monthly_rent as number).toLocaleString('de-DE')} €</span></div>}
                   </div>
                 )}
                 {renderAgentInfo(pdfExtracted)}
