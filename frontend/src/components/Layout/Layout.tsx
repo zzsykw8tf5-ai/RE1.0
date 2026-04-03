@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import Sidebar from './Sidebar';
+import DemoBanner from '../ui/DemoBanner';
 import { getProperties } from '../../services/api';
 import type { Property } from '../../types';
 
@@ -19,6 +20,7 @@ export default function Layout() {
       <main className="flex-1 overflow-y-auto">
         <Outlet context={{ properties, setProperties }} />
       </main>
+      <DemoBanner />
     </div>
   );
 }

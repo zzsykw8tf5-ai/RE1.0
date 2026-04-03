@@ -5,9 +5,11 @@ import UploadPage from './pages/UploadPage';
 import PropertyPage from './pages/PropertyPage';
 import PortfolioPage from './pages/PortfolioPage';
 
+const BASE = import.meta.env.BASE_URL;
+
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={BASE}>
       <Routes>
         <Route path="/" element={<Layout />}>
           <Route index element={<DashboardPage />} />
