@@ -287,3 +287,92 @@ def delete_property(property_id: int, db: Session = Depends(get_db)):
     db.delete(prop)
     db.commit()
     return {"ok": True}
+
+
+class PropertyUpdate(BaseModel):
+    name: str | None = None
+    address: str | None = None
+    city: str | None = None
+    zip_code: str | None = None
+    property_type: str | None = None
+    construction_year: int | None = None
+    total_area_sqm: float | None = None
+    land_area_sqm: float | None = None
+    floors: int | None = None
+    units: int | None = None
+    purchase_price: float | None = None
+    purchase_date: str | None = None
+
+
+@router.patch("/properties/{property_id}")
+def update_property(property_id: int, data: PropertyUpdate, db: Session = Depends(get_db)):
+    """Update an existing property's fields."""
+    from datetime import date as date_type
+    prop = db.query(Property).filter_by(id=property_id).first()
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+    raw = data.model_dump(exclude_unset=True)
+    if "purchase_date" in raw:
+        if raw["purchase_date"]:
+            try:
+                raw["purchase_date"] = date_type.fromisoformat(raw["purchase_date"])
+            except (ValueError, TypeError):
+                raw.pop("purchase_date")
+        else:
+            raw["purchase_date"] = None
+    valid_cols = set(Property.__table__.columns.keys())
+    for k, v in raw.items():
+        if k in valid_cols:
+            setattr(prop, k, v)
+    db.commit()
+    db.refresh(prop)
+    result = _property_dict(prop)
+    result["tenants"] = [_tenant_dict(t) for t in db.query(Tenant).filter_by(property_id=property_id).all()]
+    return result
+
+
+class TenantCreate(BaseModel):
+    name: str
+    unit: str = ""
+    area_sqm: float | None = None
+    monthly_rent: float | None = None
+    lease_start: str | None = None
+    lease_end: str | None = None
+    tenant_type: str = "STANDARD"
+    creditworthiness: str = "B"
+
+
+@router.post("/properties/{property_id}/tenants")
+def add_tenant(property_id: int, data: TenantCreate, db: Session = Depends(get_db)):
+    """Add a tenant to a property."""
+    from datetime import date as date_type
+    prop = db.query(Property).filter_by(id=property_id).first()
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+    raw = data.model_dump()
+    for key in ("lease_start", "lease_end"):
+        if raw.get(key):
+            try:
+                raw[key] = date_type.fromisoformat(raw[key])
+            except (ValueError, TypeError):
+                raw[key] = None
+    raw["property_id"] = property_id
+    if raw.get("monthly_rent"):
+        raw["annual_rent"] = round(raw["monthly_rent"] * 12, 2)
+    valid_cols = set(Tenant.__table__.columns.keys())
+    tenant = Tenant(**{k: v for k, v in raw.items() if k in valid_cols and v is not None})
+    db.add(tenant)
+    db.commit()
+    db.refresh(tenant)
+    return _tenant_dict(tenant)
+
+
+@router.delete("/properties/{property_id}/tenants/{tenant_id}")
+def delete_tenant(property_id: int, tenant_id: int, db: Session = Depends(get_db)):
+    """Remove a tenant from a property."""
+    tenant = db.query(Tenant).filter_by(id=tenant_id, property_id=property_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    db.delete(tenant)
+    db.commit()
+    return {"ok": True}

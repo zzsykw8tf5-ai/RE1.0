@@ -36,6 +36,14 @@ export const deleteProperty = async (id: number): Promise<void> => {
   if (await isBackendUp()) return api.delete(`/api/properties/${id}`).then(r => r.data);
 };
 
+export const updateProperty = async (id: number, data: Partial<{
+  name: string; address: string; city: string; zip_code: string;
+  property_type: string; construction_year: number; total_area_sqm: number;
+  land_area_sqm: number; floors: number; units: number;
+  purchase_price: number; purchase_date: string;
+}>): Promise<Property> =>
+  api.patch(`/api/properties/${id}`, data).then(r => r.data);
+
 // ---- Upload ----
 export const uploadExcel = (file: File): Promise<Property> => {
   const form = new FormData();

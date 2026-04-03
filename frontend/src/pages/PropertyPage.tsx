@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { MapPin, Calendar, Ruler, Users, Euro, Download, RefreshCw, Trash2, ChevronLeft } from 'lucide-react';
+import { MapPin, Calendar, Ruler, Users, Euro, Download, RefreshCw, Trash2, ChevronLeft, Pencil, X, Check } from 'lucide-react';
 import TopBar from '../components/Layout/TopBar';
-import { getProperty, runFullAnalysis, downloadReport, deleteProperty } from '../services/api';
+import { getProperty, runFullAnalysis, downloadReport, deleteProperty, updateProperty } from '../services/api';
 import type { Property, FullAnalysis } from '../types';
 import { formatEur, formatSqm, propertyTypeLabel } from '../utils/format';
 import { FullPageLoader } from '../components/ui/LoadingSpinner';
@@ -26,6 +26,32 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'scenarios', label: 'Szenarien' },
 ];
 
+const PROPERTY_TYPES = ['RESIDENTIAL', 'OFFICE', 'RETAIL', 'INDUSTRIAL', 'MIXED'] as const;
+
+interface EditForm {
+  name: string; address: string; city: string; zip_code: string;
+  property_type: string; construction_year: string; total_area_sqm: string;
+  land_area_sqm: string; floors: string; units: string;
+  purchase_price: string; purchase_date: string;
+}
+
+function toEditForm(p: Property): EditForm {
+  return {
+    name: p.name ?? '',
+    address: p.address ?? '',
+    city: p.city ?? '',
+    zip_code: p.zip_code ?? '',
+    property_type: p.property_type ?? 'RESIDENTIAL',
+    construction_year: p.construction_year ? String(p.construction_year) : '',
+    total_area_sqm: p.total_area_sqm ? String(p.total_area_sqm) : '',
+    land_area_sqm: p.land_area_sqm ? String(p.land_area_sqm) : '',
+    floors: p.floors ? String(p.floors) : '',
+    units: p.units ? String(p.units) : '',
+    purchase_price: p.purchase_price ? String(p.purchase_price) : '',
+    purchase_date: p.purchase_date ? p.purchase_date.slice(0, 10) : '',
+  };
+}
+
 export default function PropertyPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -34,6 +60,10 @@ export default function PropertyPage() {
   const [loading, setLoading] = useState(true);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('overview');
+  const [editOpen, setEditOpen] = useState(false);
+  const [editForm, setEditForm] = useState<EditForm | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState('');
 
   useEffect(() => {
     if (!id) return;
@@ -56,6 +86,42 @@ export default function PropertyPage() {
     navigate('/');
   };
 
+  const openEdit = () => {
+    if (!property) return;
+    setEditForm(toEditForm(property));
+    setEditError('');
+    setEditOpen(true);
+  };
+
+  const handleEditSave = async () => {
+    if (!id || !editForm) return;
+    setEditSaving(true);
+    setEditError('');
+    try {
+      const payload: Record<string, unknown> = {
+        name: editForm.name,
+        address: editForm.address,
+        city: editForm.city,
+        zip_code: editForm.zip_code,
+        property_type: editForm.property_type,
+        construction_year: editForm.construction_year ? Number(editForm.construction_year) : null,
+        total_area_sqm: editForm.total_area_sqm ? Number(editForm.total_area_sqm) : null,
+        land_area_sqm: editForm.land_area_sqm ? Number(editForm.land_area_sqm) : null,
+        floors: editForm.floors ? Number(editForm.floors) : null,
+        units: editForm.units ? Number(editForm.units) : null,
+        purchase_price: editForm.purchase_price ? Number(editForm.purchase_price) : null,
+        purchase_date: editForm.purchase_date || null,
+      };
+      const updated = await updateProperty(Number(id), payload as Parameters<typeof updateProperty>[1]);
+      setProperty(updated);
+      setEditOpen(false);
+    } catch (e: unknown) {
+      setEditError(e instanceof Error ? e.message : 'Speichern fehlgeschlagen');
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
   if (loading) return <FullPageLoader label="Objekt wird geladen und analysiert..." />;
   if (!property) return <div className="p-8 text-center text-apple-text-secondary">Objekt nicht gefunden.</div>;
 
@@ -67,6 +133,7 @@ export default function PropertyPage() {
         actions={
           <div className="flex items-center gap-2">
             <button onClick={() => navigate(-1)} className="btn-secondary flex items-center gap-1.5 text-xs"><ChevronLeft size={13} /> Zurück</button>
+            <button onClick={openEdit} className="btn-secondary flex items-center gap-1.5 text-xs"><Pencil size={13} /> Bearbeiten</button>
             <button onClick={reRunAnalysis} disabled={analysisLoading} className="btn-secondary flex items-center gap-1.5 text-xs disabled:opacity-50">
               <RefreshCw size={13} className={analysisLoading ? 'animate-spin' : ''} /> Neu berechnen
             </button>
@@ -150,6 +217,65 @@ export default function PropertyPage() {
           )}
         </div>
       </div>
+
+      {/* Edit slide-over panel */}
+      {editOpen && editForm && (
+        <div className="fixed inset-0 z-50 flex">
+          {/* Backdrop */}
+          <div className="flex-1 bg-black/30" onClick={() => setEditOpen(false)} />
+          {/* Panel */}
+          <div className="w-full max-w-md bg-white shadow-2xl flex flex-col overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-apple-gray-2">
+              <h2 className="text-base font-semibold text-apple-text">Objekt bearbeiten</h2>
+              <button onClick={() => setEditOpen(false)} className="p-1.5 hover:bg-apple-gray-2 rounded-lg"><X size={16} /></button>
+            </div>
+            <div className="flex-1 px-6 py-4 space-y-4">
+              {([
+                { label: 'Name', key: 'name', type: 'text' },
+                { label: 'Adresse', key: 'address', type: 'text' },
+                { label: 'Stadt', key: 'city', type: 'text' },
+                { label: 'PLZ', key: 'zip_code', type: 'text' },
+                { label: 'Baujahr', key: 'construction_year', type: 'number' },
+                { label: 'Mietfläche (m²)', key: 'total_area_sqm', type: 'number' },
+                { label: 'Grundstücksfläche (m²)', key: 'land_area_sqm', type: 'number' },
+                { label: 'Etagen', key: 'floors', type: 'number' },
+                { label: 'Einheiten', key: 'units', type: 'number' },
+                { label: 'Kaufpreis (€)', key: 'purchase_price', type: 'number' },
+                { label: 'Kaufdatum', key: 'purchase_date', type: 'date' },
+              ] as { label: string; key: keyof EditForm; type: string }[]).map(({ label, key, type }) => (
+                <div key={key}>
+                  <label className="block text-xs font-medium text-apple-text-secondary mb-1">{label}</label>
+                  <input
+                    type={type}
+                    value={editForm[key]}
+                    onChange={e => setEditForm(f => f ? { ...f, [key]: e.target.value } : f)}
+                    className="input-field w-full text-sm"
+                  />
+                </div>
+              ))}
+              <div>
+                <label className="block text-xs font-medium text-apple-text-secondary mb-1">Nutzungsart</label>
+                <select
+                  value={editForm.property_type}
+                  onChange={e => setEditForm(f => f ? { ...f, property_type: e.target.value } : f)}
+                  className="input-field w-full text-sm"
+                >
+                  {PROPERTY_TYPES.map(t => (
+                    <option key={t} value={t}>{propertyTypeLabel(t)}</option>
+                  ))}
+                </select>
+              </div>
+              {editError && <p className="text-xs text-apple-red">{editError}</p>}
+            </div>
+            <div className="px-6 py-4 border-t border-apple-gray-2 flex gap-2 justify-end">
+              <button onClick={() => setEditOpen(false)} className="btn-secondary text-sm">Abbrechen</button>
+              <button onClick={handleEditSave} disabled={editSaving} className="btn-primary flex items-center gap-1.5 text-sm disabled:opacity-50">
+                <Check size={14} />{editSaving ? 'Speichern…' : 'Speichern'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
