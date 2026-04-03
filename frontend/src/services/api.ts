@@ -84,13 +84,16 @@ export const downloadTemplate = async (): Promise<void> => {
     alert('Excel-Vorlage ist nur mit aktivem Backend verfügbar.\nBitte stelle sicher, dass RAILWAY_API_URL als GitHub Secret gesetzt ist.');
     return;
   }
-  // Use anchor element – more reliable than window.open for file downloads
+  // Fetch as blob via CORS-permitted request, then create local blob URL
+  const resp = await api.get('/api/upload/template', { responseType: 'blob' });
+  const blobUrl = URL.createObjectURL(resp.data);
   const a = document.createElement('a');
-  a.href = `${BASE_URL}/api/upload/template`;
+  a.href = blobUrl;
   a.download = 'RE_Analyst_Vorlage.xlsx';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
+  URL.revokeObjectURL(blobUrl);
 };
 
 // ---- Analysis ----
@@ -151,6 +154,11 @@ export const downloadReport = async (propertyId: number): Promise<void> => {
 
 export const checkHealth = (): Promise<{ status: string }> =>
   api.get('/api/health').then(r => r.data);
+
+// ---- News ----
+export interface NewsItem { title: string; link: string; pubDate: string; source: string; }
+export const getNews = (q: string): Promise<{ items: NewsItem[] }> =>
+  api.get('/api/news', { params: { q } }).then(r => r.data);
 
 // ---- Demo mode: lightweight scenario simulation ----
 function _applyScenarioToDemoData(base: DCFResult, params: Record<string, number>): DCFResult {

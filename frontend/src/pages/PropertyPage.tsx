@@ -128,7 +128,7 @@ export default function PropertyPage() {
               {activeTab === 'german' && <GermanValuationTab data={analysis.german_valuation} property={property} />}
               {activeTab === 'us' && <USValuationTab data={analysis.us_valuation} property={property} />}
               {activeTab === 'dcf' && <DCFTab data={analysis.dcf} property={property} />}
-              {activeTab === 'location' && <LocationTab data={analysis.location} />}
+              {activeTab === 'location' && <LocationTab data={analysis.location} property={property} />}
               {activeTab === 'risk' && <RiskTab data={analysis.risk} property={property} />}
               {activeTab === 'scenarios' && <ScenarioTab property={property} />}
             </>

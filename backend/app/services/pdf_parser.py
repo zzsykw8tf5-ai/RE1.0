@@ -114,33 +114,100 @@ def _find_area(text: str) -> float | None:
     return None
 
 
+_STREET_SUFFIXES = (
+    r'straße|strasse|str\.|gasse|weg|allee|platz|ring|damm|hafen|ufer|chaussee'
+    r'|berg|steig|pfad|markt|hof|zeile|stieg|promenade|kai'
+)
+_STREET_WORD = (
+    r'[A-ZÄÖÜ][a-zäöüß]+(?:[-][A-Za-zäöüßÄÖÜ]+)*'
+    r'(?:\s+[A-Za-zäöüßÄÖÜ]+)*'
+)
+
+
+def _find_full_address(text: str) -> tuple[str | None, str | None, str | None]:
+    """Find (street, zip, city) all in one combined pattern."""
+    # Forward: Musterstraße 12[a], 30179 Hannover
+    m = re.search(
+        r'(' + _STREET_WORD + r'\s*(?:' + _STREET_SUFFIXES + r')\s*\d+\s*[a-zA-Z]?)'
+        r'\s*[,\n]\s*(\d{5})\s+([A-ZÄÖÜ][a-zäöüßA-ZÄÖÜ][a-zäöüß\s\-]*)',
+        text, re.IGNORECASE,
+    )
+    if m:
+        street = m.group(1).strip().rstrip(',')
+        zip_code = m.group(2)
+        city = m.group(3).strip().rstrip(',. ')
+        city = ' '.join(city.split()[:3])
+        return street, zip_code, city
+
+    # Reverse: 30179 Hannover, Musterstraße 12
+    m = re.search(
+        r'(\d{5})\s+([A-ZÄÖÜ][a-zäöüßA-ZÄÖÜ][a-zäöüß\s\-]*?)\s*[,\n]\s*'
+        r'(' + _STREET_WORD + r'\s*(?:' + _STREET_SUFFIXES + r')\s*\d+\s*[a-zA-Z]?)',
+        text, re.IGNORECASE,
+    )
+    if m:
+        zip_code = m.group(1)
+        city = m.group(2).strip().rstrip(',. ')
+        city = ' '.join(city.split()[:3])
+        street = m.group(3).strip().rstrip(',')
+        return street, zip_code, city
+
+    return None, None, None
+
+
 def _find_zip_and_city(text: str) -> tuple[str | None, str | None]:
     """Extract German ZIP code and city name."""
-    # Pattern: 5-digit ZIP followed by city name
-    m = re.search(r'\b(\d{5})\s+([A-ZÄÖÜ][a-zäöüßA-ZÄÖÜ\s\-]+?)(?:\s*[\n,]|$)', text)
+    # Pattern: 5-digit ZIP followed by city name (handle multi-word cities like "Bad Homburg")
+    m = re.search(
+        r'\b(\d{5})\s+([A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+){0,2})(?:\s*[\n,./]|$)',
+        text,
+    )
     if m:
         return m.group(1), m.group(2).strip()
+    # Looser fallback
+    m = re.search(r'\b(\d{5})\s+([A-ZÄÖÜ][a-zäöüßA-ZÄÖÜ\-]+)', text)
+    if m:
+        city = m.group(2).strip()
+        return m.group(1), city
     return None, None
 
 
 def _find_street(text: str) -> str | None:
     """Extract street address (without ZIP/city)."""
-    patterns = [
-        # Explicit label
-        r'(?:Adresse|Standort|Lage|Objektadresse)\s*[:\s]\s*([A-ZÄÖÜ][^\n]{5,60})',
-        # Street name patterns (straße, weg, etc.) with house number
-        r'([A-ZÄÖÜ][a-zäöüß]+(?:[-\s][A-Za-zäöüßÄÖÜ]+)*'
-        r'\s*(?:straße|strasse|str\.|gasse|weg|allee|platz|ring|damm|hafen|ufer|chaussee)'
-        r'[^\n]{0,20})',
+    # Labeled patterns take priority
+    labeled = [
+        r'(?:Adresse|Objektadresse|Anschrift)\s*[:\s]\s*([A-ZÄÖÜ][^\n]{5,60})',
+        r'(?:Lage|Standort)\s*[:\s]\s*([A-ZÄÖÜ][^\n]{5,60})',
     ]
-    for pattern in patterns:
+    for pattern in labeled:
         m = re.search(pattern, text, re.IGNORECASE)
         if m:
             val = m.group(1).strip().rstrip(',')
-            # Remove trailing ZIP/city if accidentally captured
-            val = re.sub(r'\s*\d{5}\s+\w+.*$', '', val).strip()
+            val = re.sub(r'\s*\d{5}\s+\S.*$', '', val).strip()
             if 3 < len(val) < 80:
                 return val
+
+    # Street followed by house number
+    pattern = (
+        r'(' + _STREET_WORD + r'\s*(?:' + _STREET_SUFFIXES + r')\s*\d+\s*[a-zA-Z]?)'
+    )
+    m = re.search(pattern, text, re.IGNORECASE)
+    if m:
+        val = m.group(1).strip().rstrip(',')
+        val = re.sub(r'\s*\d{5}\s+\S.*$', '', val).strip()
+        if 3 < len(val) < 80:
+            return val
+
+    # Street without number (fallback)
+    m = re.search(
+        r'(' + _STREET_WORD + r'\s*(?:' + _STREET_SUFFIXES + r'))',
+        text, re.IGNORECASE,
+    )
+    if m:
+        val = m.group(1).strip().rstrip(',')
+        if 3 < len(val) < 80:
+            return val
+
     return None
 
 
@@ -255,11 +322,20 @@ def parse_pdf(file_bytes: bytes) -> dict:
             "description": None,
         }
 
-    zip_code, city = _find_zip_and_city(text)
+    # Try combined address first (most reliable)
+    street, zip_code, city = _find_full_address(text)
+    if not street:
+        street = _find_street(text)
+    if not zip_code or not city:
+        _zip, _city = _find_zip_and_city(text)
+        if not zip_code:
+            zip_code = _zip
+        if not city:
+            city = _city
 
     result = {
         "property_name": _find_property_name(text),
-        "address": _find_street(text),
+        "address": street,
         "city": city,
         "zip_code": zip_code,
         "property_type": _find_property_type(text),
