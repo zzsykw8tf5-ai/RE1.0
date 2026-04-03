@@ -198,7 +198,31 @@ def _find_full_address(text: str) -> tuple[str | None, str | None, str | None]:
                 street = m.group(3).strip().rstrip(',')
             return street, zip_code, city
 
+    # 3) Partial: street + city without ZIP (e.g. "Musterstraße 12, Frankfurt")
+    partial_pat = re.compile(
+        r'(' + _STREET_WORD + r'\s*(?:' + _STREET_SUFFIXES + r')\s*\d*\s*[a-zA-Z]?)'
+        r'\s*[,\n]\s*([A-ZÄÖÜ][a-zäöüß]+(?:[\s\-][A-ZÄÖÜ][a-zäöüß]+){0,2})',
+    )
+    m = partial_pat.search(object_text)
+    if m:
+        return m.group(1).strip().rstrip(','), None, m.group(2).strip().rstrip(',. ')
+
     return None, None, None
+
+
+_KNOWN_CITIES = [
+    "Berlin", "Hamburg", "München", "Köln", "Frankfurt", "Stuttgart", "Düsseldorf",
+    "Leipzig", "Dortmund", "Essen", "Bremen", "Dresden", "Hannover", "Nürnberg",
+    "Duisburg", "Bochum", "Wuppertal", "Bielefeld", "Bonn", "Münster", "Mannheim",
+    "Augsburg", "Wiesbaden", "Gelsenkirchen", "Mönchengladbach", "Braunschweig",
+    "Chemnitz", "Kiel", "Aachen", "Halle", "Magdeburg", "Freiburg", "Krefeld",
+    "Lübeck", "Oberhausen", "Erfurt", "Mainz", "Rostock", "Kassel", "Hagen",
+    "Potsdam", "Saarbrücken", "Hamm", "Mülheim", "Ludwigshafen", "Osnabrück",
+    "Leverkusen", "Heidelberg", "Oldenburg", "Neuss", "Paderborn", "Ingolstadt",
+    "Würzburg", "Fürth", "Ulm", "Heilbronn", "Pforzheim", "Wolfsburg", "Regensburg",
+    "Recklinghausen", "Göttingen", "Bremerhaven", "Erlangen", "Moers", "Siegen",
+    "Hildesheim", "Salzgitter",
+]
 
 
 def _find_zip_and_city(text: str) -> tuple[str | None, str | None]:
@@ -215,6 +239,10 @@ def _find_zip_and_city(text: str) -> tuple[str | None, str | None]:
     if m:
         city = m.group(2).strip()
         return m.group(1), city
+    # City-only fallback (no ZIP): scan for known major German cities
+    for city_name in _KNOWN_CITIES:
+        if re.search(r'\b' + re.escape(city_name) + r'\b', text):
+            return None, city_name
     return None, None
 
 
@@ -396,6 +424,10 @@ def _find_land_area(text: str) -> float | None:
             except ValueError:
                 continue
     return None
+
+
+def _find_property_type(text: str) -> str:
+    """Detect property type from keywords."""
     t = text.lower()
     scores: dict[str, int] = {
         "OFFICE": 0, "RETAIL": 0, "RESIDENTIAL": 0, "INDUSTRIAL": 0, "MIXED": 0,
