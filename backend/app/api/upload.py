@@ -367,6 +367,31 @@ def add_tenant(property_id: int, data: TenantCreate, db: Session = Depends(get_d
     return _tenant_dict(tenant)
 
 
+@router.patch("/properties/{property_id}/tenants/{tenant_id}")
+def update_tenant(property_id: int, tenant_id: int, data: TenantCreate, db: Session = Depends(get_db)):
+    """Update an existing tenant's fields."""
+    from datetime import date as date_type
+    tenant = db.query(Tenant).filter_by(id=tenant_id, property_id=property_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    raw = data.model_dump(exclude_unset=False)
+    for key in ("lease_start", "lease_end"):
+        if raw.get(key):
+            try:
+                raw[key] = date_type.fromisoformat(raw[key])
+            except (ValueError, TypeError):
+                raw[key] = None
+    if raw.get("monthly_rent"):
+        raw["annual_rent"] = round(raw["monthly_rent"] * 12, 2)
+    valid_cols = set(Tenant.__table__.columns.keys())
+    for k, v in raw.items():
+        if k in valid_cols:
+            setattr(tenant, k, v)
+    db.commit()
+    db.refresh(tenant)
+    return _tenant_dict(tenant)
+
+
 @router.delete("/properties/{property_id}/tenants/{tenant_id}")
 def delete_tenant(property_id: int, tenant_id: int, db: Session = Depends(get_db)):
     """Remove a tenant from a property."""

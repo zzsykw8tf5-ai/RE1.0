@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import TopBar from '../components/Layout/TopBar';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
-import { getProperty, getMarketData, addTenant, deleteTenant, suggestTenants } from '../services/api';
+import { getProperty, getMarketData, addTenant, deleteTenant, updateTenant, suggestTenants } from '../services/api';
 import type { Property, Tenant } from '../types';
 import type { TenantSuggestion } from '../services/api';
 
@@ -54,6 +54,7 @@ interface TenantRow {
   creditworthiness: string;
   saved: boolean;
   saving: boolean;
+  editing: boolean;   // true when editing a previously saved row
   error: string;
 }
 
@@ -70,7 +71,7 @@ const emptyTenant = (): TenantRow => ({
   name: '', unit: '', area_sqm: '', monthly_rent: '',
   lease_start: '', lease_end: '',
   tenant_type: 'STANDARD', creditworthiness: 'B',
-  saved: false, saving: false, error: '',
+  saved: false, saving: false, editing: false, error: '',
 });
 
 const TENANT_TYPES = ['ANCHOR', 'STANDARD', 'SMALL'];
@@ -214,6 +215,30 @@ function TenantStep({
     }
   };
 
+  const handleUpdate = async (i: number) => {
+    const row = rows[i];
+    if (!row.name.trim() || !row.id) return;
+    updateRow(i, { saving: true, error: '' });
+    try {
+      const tenant = await updateTenant(property.id, row.id, {
+        name: row.name,
+        unit: row.unit || undefined,
+        area_sqm: row.area_sqm ? parseFloat(row.area_sqm) : undefined,
+        monthly_rent: row.monthly_rent ? parseFloat(row.monthly_rent) : undefined,
+        lease_start: row.lease_start || undefined,
+        lease_end: row.lease_end || undefined,
+        tenant_type: row.tenant_type,
+        creditworthiness: row.creditworthiness,
+      });
+      updateRow(i, { saved: true, saving: false, editing: false });
+      // Update in parent list too
+      onTenantDeleted(tenant.id);
+      onTenantAdded(tenant);
+    } catch {
+      updateRow(i, { saving: false, error: 'Aktualisierung fehlgeschlagen' });
+    }
+  };
+
   const handleDelete = async (tenantId: number, rowIdx: number) => {
     await deleteTenant(property.id, tenantId);
     setRows(rs => rs.filter((_, i) => i !== rowIdx));
@@ -259,20 +284,48 @@ function TenantStep({
       {/* Tenant rows */}
       <div className="space-y-3 mb-4">
         {rows.map((row, i) => (
-          <div key={i} className={`border rounded-apple p-3 ${row.saved ? 'border-green-200 bg-green-50/30' : 'border-apple-gray-3 bg-white'}`}>
-            {row.saved ? (
+          <div key={i} className={`border rounded-apple p-3 ${
+            row.saved && !row.editing
+              ? row.name.toLowerCase().startsWith('leerstand')
+                ? 'border-amber-200 bg-amber-50/40'
+                : 'border-green-200 bg-green-50/30'
+              : 'border-apple-gray-3 bg-white'
+          }`}>
+            {row.saved && !row.editing ? (
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm">
-                  <CheckCircle2 size={14} className="text-apple-green" />
+                  {row.name.toLowerCase().startsWith('leerstand')
+                    ? <AlertCircle size={14} className="text-amber-500" />
+                    : <CheckCircle2 size={14} className="text-apple-green" />
+                  }
                   <span className="font-medium">{row.name}</span>
                   {row.area_sqm && <span className="text-apple-text-secondary">{row.area_sqm} m²</span>}
-                  {row.monthly_rent && <span className="text-apple-blue font-medium">{fmtEur(parseFloat(row.monthly_rent))}/Monat</span>}
+                  {row.monthly_rent && !row.name.toLowerCase().startsWith('leerstand') && (
+                    <span className="text-apple-blue font-medium">{fmtEur(parseFloat(row.monthly_rent))}/Monat</span>
+                  )}
+                  {row.monthly_rent && row.name.toLowerCase().startsWith('leerstand') && (
+                    <span className="text-amber-600 text-xs">Potenzial: {fmtEur(parseFloat(row.monthly_rent))}/Monat</span>
+                  )}
+                  {row.lease_end && <span className="text-apple-text-tertiary text-xs">bis {row.lease_end}</span>}
                 </div>
-                {row.id && (
-                  <button onClick={() => handleDelete(row.id!, i)} className="text-apple-text-tertiary hover:text-apple-red transition-colors">
-                    <Trash2 size={13} />
-                  </button>
-                )}
+                <div className="flex items-center gap-1">
+                  {row.name.toLowerCase().startsWith('leerstand') ? (
+                    <button onClick={() => updateRow(i, { saved: false, editing: true, name: '' })}
+                      className="text-xs text-amber-700 bg-amber-100 hover:bg-amber-200 px-2 py-0.5 rounded transition-colors font-medium">
+                      Vermieten
+                    </button>
+                  ) : (
+                    <button onClick={() => updateRow(i, { saved: false, editing: true })}
+                      className="text-xs text-apple-blue hover:bg-blue-50 px-2 py-0.5 rounded transition-colors">
+                      Bearbeiten
+                    </button>
+                  )}
+                  {row.id && (
+                    <button onClick={() => handleDelete(row.id!, i)} className="text-apple-text-tertiary hover:text-apple-red transition-colors p-1">
+                      <Trash2 size={13} />
+                    </button>
+                  )}
+                </div>
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -329,11 +382,25 @@ function TenantStep({
                   </select>
                 </div>
                 <div className="col-span-2 sm:col-span-4 flex items-center gap-2 pt-1">
-                  <button disabled={!row.name.trim() || row.saving} onClick={() => handleSave(i)}
-                    className="btn-primary text-xs flex items-center gap-1.5 disabled:opacity-50">
-                    {row.saving ? <LoadingSpinner /> : <CheckCircle2 size={12} />}
-                    Mieter speichern
-                  </button>
+                  {row.editing ? (
+                    <>
+                      <button disabled={!row.name.trim() || row.saving} onClick={() => handleUpdate(i)}
+                        className="btn-primary text-xs flex items-center gap-1.5 disabled:opacity-50">
+                        {row.saving ? <LoadingSpinner /> : <CheckCircle2 size={12} />}
+                        Aktualisieren
+                      </button>
+                      <button onClick={() => updateRow(i, { saved: true, editing: false, error: '' })}
+                        className="btn-secondary text-xs">
+                        Abbrechen
+                      </button>
+                    </>
+                  ) : (
+                    <button disabled={!row.name.trim() || row.saving} onClick={() => handleSave(i)}
+                      className="btn-primary text-xs flex items-center gap-1.5 disabled:opacity-50">
+                      {row.saving ? <LoadingSpinner /> : <CheckCircle2 size={12} />}
+                      Mieter speichern
+                    </button>
+                  )}
                   {row.error && <span className="text-xs text-apple-red">{row.error}</span>}
                 </div>
               </div>
@@ -370,6 +437,37 @@ function TenantStep({
             </div>
           )}
         </div>
+      )}
+
+      {/* Vacancy summary */}
+      {property.total_area_sqm > 0 && (
+        (() => {
+          const vacantSqm = Math.max(0, property.total_area_sqm - totalArea);
+          const vacantPct = Math.round((vacantSqm / property.total_area_sqm) * 100);
+          if (vacantSqm <= 0) return null;
+          return (
+            <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-apple flex items-center justify-between">
+              <div className="text-xs">
+                <span className="font-semibold text-amber-700">{fmt(vacantSqm)} m²</span>
+                <span className="text-amber-600"> unvermietete Fläche ({vacantPct}%)</span>
+              </div>
+              <button
+                onClick={() => {
+                  const potentialRent = market ? Math.round(market.market_rent.avg_per_sqm * vacantSqm) : 0;
+                  setRows(rs => [...rs, {
+                    ...emptyTenant(),
+                    name: 'Leerstand',
+                    area_sqm: String(Math.round(vacantSqm)),
+                    monthly_rent: potentialRent ? String(potentialRent) : '',
+                  }]);
+                }}
+                className="text-xs btn-secondary border-amber-300 text-amber-700 hover:bg-amber-100 flex items-center gap-1"
+              >
+                <Plus size={11} /> Leerstand anlegen
+              </button>
+            </div>
+          );
+        })()
       )}
 
       {/* Action buttons */}

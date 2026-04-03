@@ -81,6 +81,12 @@ export const addTenant = (propertyId: number, data: {
 export const deleteTenant = (propertyId: number, tenantId: number): Promise<void> =>
   api.delete(`/api/properties/${propertyId}/tenants/${tenantId}`).then(r => r.data);
 
+export const updateTenant = (propertyId: number, tenantId: number, data: {
+  name: string; unit?: string; area_sqm?: number; monthly_rent?: number;
+  lease_start?: string; lease_end?: string; tenant_type?: string; creditworthiness?: string;
+}): Promise<import('../types').Tenant> =>
+  api.patch(`/api/properties/${propertyId}/tenants/${tenantId}`, data).then(r => r.data);
+
 export const createProperty = async (data: {
   name: string; address?: string; city?: string; zip_code?: string;
   property_type?: string; construction_year?: number; total_area_sqm?: number;

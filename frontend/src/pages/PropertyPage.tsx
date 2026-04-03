@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { MapPin, Calendar, Ruler, Users, Euro, Download, RefreshCw, Trash2, ChevronLeft, Pencil, X, Check } from 'lucide-react';
+import { MapPin, Calendar, Ruler, Users, Euro, Download, RefreshCw, Trash2, ChevronLeft, Pencil, X, Check, UserPlus } from 'lucide-react';
 import TopBar from '../components/Layout/TopBar';
 import { getProperty, runFullAnalysis, downloadReport, deleteProperty, updateProperty } from '../services/api';
 import type { Property, FullAnalysis } from '../types';
@@ -134,6 +134,7 @@ export default function PropertyPage() {
           <div className="flex items-center gap-2">
             <button onClick={() => navigate(-1)} className="btn-secondary flex items-center gap-1.5 text-xs"><ChevronLeft size={13} /> Zurück</button>
             <button onClick={openEdit} className="btn-secondary flex items-center gap-1.5 text-xs"><Pencil size={13} /> Bearbeiten</button>
+            <button onClick={() => navigate(`/onboard/${id}`)} className="btn-secondary flex items-center gap-1.5 text-xs"><UserPlus size={13} /> Mieter verwalten</button>
             <button onClick={reRunAnalysis} disabled={analysisLoading} className="btn-secondary flex items-center gap-1.5 text-xs disabled:opacity-50">
               <RefreshCw size={13} className={analysisLoading ? 'animate-spin' : ''} /> Neu berechnen
             </button>
