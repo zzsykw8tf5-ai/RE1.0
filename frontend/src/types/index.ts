@@ -195,6 +195,7 @@ export interface LocationAnalysis {
   recommendation: string;
   city: string;
   zip_code: string;
+  data_source?: string;
 }
 
 // ---- Risk ----

@@ -232,6 +232,26 @@ export default function LocationTab({ data, property }: Props) {
           )}
         </div>
       </div>
+
+      {/* Data source disclaimer */}
+      <div className="rounded-apple border border-apple-gray-3 bg-apple-gray px-4 py-3">
+        <div className="flex items-start gap-2">
+          <AlertTriangle size={13} className="text-apple-orange mt-0.5 flex-shrink-0" />
+          <div className="text-[11px] text-apple-text-secondary leading-relaxed">
+            <span className="font-medium text-apple-text">Datengrundlage: </span>
+            {data.data_source ?? 'Internes Referenzdatenbankmodell (Stand 2024)'}
+            {' '}Für gutachterliche Bewertungen externe Marktdaten heranziehen:
+            {' '}
+            <a href="https://www.destatis.de" target="_blank" rel="noopener noreferrer" className="text-apple-blue hover:underline">Destatis</a>
+            {' · '}
+            <a href="https://www.jll.de/de/trends-und-insights/research" target="_blank" rel="noopener noreferrer" className="text-apple-blue hover:underline">JLL Research</a>
+            {' · '}
+            <a href="https://www.cbre.de/de-de/research-and-reports" target="_blank" rel="noopener noreferrer" className="text-apple-blue hover:underline">CBRE Research</a>
+            {' · '}
+            <a href="https://www.ivd.net/marktdaten" target="_blank" rel="noopener noreferrer" className="text-apple-blue hover:underline">IVD Marktdaten</a>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

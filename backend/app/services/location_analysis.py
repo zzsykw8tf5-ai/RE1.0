@@ -267,6 +267,22 @@ GERMAN_CITY_DATA = {
         "typical_rent_resi_sqm": 12,
         "zip_ranges": [(28000, 28999)],
     },
+    "potsdam": {
+        "tier": "B-Stadt",
+        "city_rating": 7.8,
+        "population_trend": "stark wachsend",
+        "population": 185_000,
+        "gdp_growth": 2.5,
+        "unemployment_rate": 4.8,
+        "real_estate_market_trend": "sehr positiv",
+        "infrastructure_score": 7.5,
+        "economic_diversity_score": 7.2,
+        "typical_cap_rates": {"RESIDENTIAL": 3.5, "OFFICE": 5.5, "RETAIL": 5.8},
+        "typical_rent_office_sqm": 18,
+        "typical_rent_retail_sqm": 22,
+        "typical_rent_resi_sqm": 15,
+        "zip_ranges": [(14400, 14480)],
+    },
 }
 
 DEFAULT_CITY_DATA = {

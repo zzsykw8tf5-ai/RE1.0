@@ -28,6 +28,7 @@ CITY_BODENRICHTWERT = {
     "dresden": 450,
     "hannover": 500,
     "bremen": 450,
+    "potsdam": 700,
 }
 
 CITY_VERGLEICHSPREISE = {
@@ -457,6 +458,7 @@ def _normalize_location(raw: dict) -> dict:
         "recommendation": raw.get("recommendation", ""),
         "city": standort.get("city", ""),
         "zip_code": standort.get("zip_code", ""),
+        "data_source": raw.get("data_source", "Internes Referenzdatenbankmodell (Stand 2024)"),
     }
 
 
