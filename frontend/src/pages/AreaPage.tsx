@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ChevronLeft, Plus, Pencil, Trash2, X, Check, Layers, MapPin, RefreshCw, Info } from 'lucide-react';
+import { ChevronLeft, Plus, Pencil, Trash2, X, Check, Layers, MapPin, RefreshCw, Info, Home } from 'lucide-react';
 import TopBar from '../components/Layout/TopBar';
 import { getProperty, listAreas, createArea, updateArea, deleteArea, getGifTypes, getAreaRent, getOsmEstimate, updateProperty } from '../services/api';
 import type { Property, RentalArea, GifTypes, AreaRentEstimate, OsmBuildingEstimate } from '../types';
@@ -27,6 +27,46 @@ const emptyForm = (): AreaForm => ({
   status: 'VERFUEGBAR',
   notes: '',
 });
+
+const ETAGEN_LIST = ['EG', 'OG1', 'OG2', 'OG3', 'OG4', 'OG5', 'OG6', 'OG7'];
+
+interface AreaSuggestion {
+  nutzungsart: string;
+  nutzungsart_label: string;
+  etage: string;
+  area_sqm: number;
+  lage_qualitaet: string | null;
+}
+
+function generateAreaSuggestions(estimate: NonNullable<OsmBuildingEstimate['estimate']>): AreaSuggestion[] {
+  const { footprint_sqm, floors, building_type } = estimate;
+  const perFloor = Math.round(footprint_sqm);
+  const nutzungsartLabels: Record<string, string> = {
+    BUERO: 'Bürofläche', EINZELHANDEL: 'Einzelhandelsfläche',
+    LAGER: 'Lagerfläche', WOHNEN: 'Wohnfläche',
+  };
+  const suggestions: AreaSuggestion[] = [];
+  const bt = (building_type || '').toLowerCase();
+
+  if (bt === 'office' || bt === 'commercial_office') {
+    for (let f = 0; f < Math.min(floors, 8); f++) {
+      suggestions.push({ nutzungsart: 'BUERO', nutzungsart_label: nutzungsartLabels.BUERO, etage: ETAGEN_LIST[f] || 'EG', area_sqm: perFloor, lage_qualitaet: null });
+    }
+  } else if (bt === 'residential' || bt === 'apartments' || bt === 'house') {
+    for (let f = 0; f < Math.min(floors, 8); f++) {
+      suggestions.push({ nutzungsart: 'WOHNEN', nutzungsart_label: nutzungsartLabels.WOHNEN, etage: ETAGEN_LIST[f] || 'EG', area_sqm: perFloor, lage_qualitaet: null });
+    }
+  } else if (bt === 'industrial' || bt === 'warehouse') {
+    suggestions.push({ nutzungsart: 'LAGER', nutzungsart_label: nutzungsartLabels.LAGER, etage: 'EG', area_sqm: perFloor * floors, lage_qualitaet: null });
+  } else {
+    // retail/commercial/yes/mixed/unknown → EG: Einzelhandel, OG: Bürofläche
+    suggestions.push({ nutzungsart: 'EINZELHANDEL', nutzungsart_label: nutzungsartLabels.EINZELHANDEL, etage: 'EG', area_sqm: perFloor, lage_qualitaet: '1B' });
+    for (let f = 1; f < Math.min(floors, 8); f++) {
+      suggestions.push({ nutzungsart: 'BUERO', nutzungsart_label: nutzungsartLabels.BUERO, etage: ETAGEN_LIST[f] || `OG${f}`, area_sqm: perFloor, lage_qualitaet: null });
+    }
+  }
+  return suggestions;
+}
 
 const STATUS_COLORS: Record<string, string> = {
   VERFUEGBAR:   'bg-green-100 text-green-800',
@@ -60,6 +100,11 @@ export default function AreaPage() {
   const [osmResult, setOsmResult] = useState<OsmBuildingEstimate | null>(null);
   const [osmLoading, setOsmLoading] = useState(false);
   const [osmAccepted, setOsmAccepted] = useState(false);
+
+  // Area suggestions from OSM
+  const [areaSuggestions, setAreaSuggestions] = useState<AreaSuggestion[]>([]);
+  const [selectedSuggestions, setSelectedSuggestions] = useState<Set<number>>(new Set());
+  const [creatingSuggestions, setCreatingSuggestions] = useState(false);
 
   useEffect(() => {
     Promise.all([getProperty(propertyId), listAreas(propertyId), getGifTypes()])
@@ -178,6 +223,39 @@ export default function AreaPage() {
     } catch { /* ignore */ }
   };
 
+  useEffect(() => {
+    if (osmResult?.estimate) {
+      const suggs = generateAreaSuggestions(osmResult.estimate);
+      setAreaSuggestions(suggs);
+      setSelectedSuggestions(new Set(suggs.map((_, i) => i)));
+    } else {
+      setAreaSuggestions([]);
+      setSelectedSuggestions(new Set());
+    }
+  }, [osmResult]);
+
+  const createSuggestedAreas = async () => {
+    setCreatingSuggestions(true);
+    try {
+      for (const idx of Array.from(selectedSuggestions).sort()) {
+        const s = areaSuggestions[idx];
+        const created = await createArea(propertyId, {
+          nutzungsart: s.nutzungsart,
+          etage: s.etage,
+          lage_qualitaet: s.lage_qualitaet,
+          area_sqm: s.area_sqm,
+          status: 'VERFUEGBAR',
+        });
+        setAreas(prev => [...prev, created]);
+      }
+      setAreaSuggestions([]);
+      setSelectedSuggestions(new Set());
+      setOsmResult(null);
+    } finally {
+      setCreatingSuggestions(false);
+    }
+  };
+
   // Summary by Nutzungsart
   const summary = areas.reduce<Record<string, { count: number; sqm: number; rent: number }>>((acc, a) => {
     const key = a.nutzungsart_label;
@@ -271,6 +349,42 @@ export default function AreaPage() {
                             <Check size={12} /> In Objekt übernehmen
                           </button>
                           <button onClick={() => setOsmResult(null)} className="btn-secondary text-xs">Verwerfen</button>
+                        </div>
+                      )}
+                      {areaSuggestions.length > 0 && (
+                        <div className="mt-3 border-t border-apple-gray-2 pt-3">
+                          <p className="text-xs font-semibold text-apple-text mb-2">
+                            Vorgeschlagene Flächen automatisch anlegen:
+                          </p>
+                          <div className="space-y-1 mb-3">
+                            {areaSuggestions.map((s, idx) => (
+                              <label key={idx} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-apple-gray-1 px-1 py-0.5 rounded">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedSuggestions.has(idx)}
+                                  onChange={e => {
+                                    setSelectedSuggestions(prev => {
+                                      const next = new Set(prev);
+                                      if (e.target.checked) next.add(idx); else next.delete(idx);
+                                      return next;
+                                    });
+                                  }}
+                                />
+                                <span className="text-apple-text-secondary">{s.etage}</span>
+                                <span className="font-medium text-apple-text">{s.nutzungsart_label}</span>
+                                <span className="text-apple-text-tertiary">{s.area_sqm.toLocaleString('de-DE')} m²</span>
+                                {s.lage_qualitaet && <span className="text-apple-blue">{s.lage_qualitaet}</span>}
+                              </label>
+                            ))}
+                          </div>
+                          <button
+                            onClick={createSuggestedAreas}
+                            disabled={creatingSuggestions || selectedSuggestions.size === 0}
+                            className="btn-primary text-xs flex items-center gap-1.5 disabled:opacity-50"
+                          >
+                            {creatingSuggestions ? <RefreshCw size={11} className="animate-spin" /> : <Plus size={11} />}
+                            {selectedSuggestions.size} Fläche{selectedSuggestions.size !== 1 ? 'n' : ''} anlegen
+                          </button>
                         </div>
                       )}
                     </div>
@@ -375,6 +489,15 @@ export default function AreaPage() {
                     {area.notes && <p className="text-xs text-apple-text-tertiary mt-0.5 truncate">{area.notes}</p>}
                   </div>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {area.status === 'VERFUEGBAR' && (
+                      <button
+                        onClick={() => navigate(`/onboard/${propertyId}?areaId=${area.id}`)}
+                        className="p-1.5 hover:bg-green-50 rounded-lg"
+                        title="Vermieten"
+                      >
+                        <Home size={13} className="text-green-700" />
+                      </button>
+                    )}
                     <button onClick={() => openEdit(area)} className="p-1.5 hover:bg-apple-gray-2 rounded-lg">
                       <Pencil size={13} className="text-apple-text-secondary" />
                     </button>

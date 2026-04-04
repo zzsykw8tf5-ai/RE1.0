@@ -34,6 +34,26 @@ const TYPE_LABELS: Record<string, string> = {
   RETAIL: 'Einzelhandelsobjekt', INDUSTRIAL: 'Logistikimmobilie', MIXED: 'Mischnutzungsobjekt',
 };
 
+function parseGoogleMapsUrl(url: string): { address?: string; city?: string; zip_code?: string } {
+  try {
+    const decoded = decodeURIComponent(url).replace(/\+/g, ' ');
+    // Format: /maps/place/ADDRESS/@lat
+    const placeMatch = decoded.match(/\/maps\/place\/([^/@?]+)/);
+    const raw = placeMatch ? placeMatch[1].trim() : (() => {
+      const qMatch = decoded.match(/[?&]q=([^&]+)/);
+      return qMatch ? qMatch[1].trim() : null;
+    })();
+    if (!raw) return {};
+    const parts = raw.split(',').map((p: string) => p.trim()).filter(Boolean);
+    const zipCityMatch = parts[1]?.match(/^(\d{5})\s+(.+)$/);
+    return {
+      address: parts[0] || '',
+      zip_code: zipCityMatch?.[1] || '',
+      city: (zipCityMatch?.[2] || parts[1] || '').replace(/\s*Deutschland\s*$/i, '').trim(),
+    };
+  } catch { return {}; }
+}
+
 function buildAutoName(type: string, city: string, address: string): string {
   const parts = [TYPE_LABELS[type] || 'Objekt', city].filter(Boolean);
   if (address) parts.push(address);
@@ -62,6 +82,7 @@ function ReviewForm({
     return base;
   });
   const [nameManuallyEdited, setNameManuallyEdited] = useState(!!initial.name);
+  const [mapsUrl, setMapsUrl] = useState('');
 
   // Auto-update name when type/city/address change and user hasn't manually edited it
   const setField = (patch: Partial<FormData>) => {
@@ -100,6 +121,29 @@ function ReviewForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
+      {/* Google Maps URL */}
+      <div>
+        <label className={labelCls}>Google Maps URL <span className="text-apple-text-tertiary font-normal">(optional – Adresse automatisch ausfüllen)</span></label>
+        <input
+          type="url"
+          className={inputCls}
+          placeholder="https://www.google.com/maps/place/Musterstraße+1,+10115+Berlin/..."
+          value={mapsUrl}
+          onChange={e => {
+            setMapsUrl(e.target.value);
+            const parsed = parseGoogleMapsUrl(e.target.value);
+            if (parsed.address || parsed.city) {
+              setField({
+                ...(parsed.address ? { address: parsed.address } : {}),
+                ...(parsed.city ? { city: parsed.city } : {}),
+                ...(parsed.zip_code ? { zip_code: parsed.zip_code } : {}),
+              });
+            }
+          }}
+        />
+        <p className="text-[10px] text-apple-text-tertiary mt-0.5">Adresse, PLZ und Stadt werden automatisch ausgefüllt</p>
+      </div>
+
       {/* Confidence banner */}
       {confidence && (
         <div className={`flex items-start gap-2 p-3 rounded-apple border text-xs ${confidenceColor}`}>
