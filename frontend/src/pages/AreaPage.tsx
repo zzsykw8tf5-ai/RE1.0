@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ChevronLeft, Plus, Pencil, Trash2, X, Check, Layers, MapPin, RefreshCw, Info, Home } from 'lucide-react';
 import TopBar from '../components/Layout/TopBar';
@@ -105,6 +105,7 @@ export default function AreaPage() {
   const [areaSuggestions, setAreaSuggestions] = useState<AreaSuggestion[]>([]);
   const [selectedSuggestions, setSelectedSuggestions] = useState<Set<number>>(new Set());
   const [creatingSuggestions, setCreatingSuggestions] = useState(false);
+  const osmAutoFired = useRef(false);
 
   useEffect(() => {
     Promise.all([getProperty(propertyId), listAreas(propertyId), getGifTypes()])
@@ -112,6 +113,15 @@ export default function AreaPage() {
         setProperty(prop);
         setAreas(arList);
         setGifTypes(gTypes);
+        // Auto-trigger OSM estimate on first load if no areas yet
+        if (arList.length === 0 && !osmAutoFired.current) {
+          osmAutoFired.current = true;
+          setOsmLoading(true);
+          getOsmEstimate(propertyId)
+            .then(setOsmResult)
+            .catch(() => {})
+            .finally(() => setOsmLoading(false));
+        }
       })
       .catch(console.error)
       .finally(() => setLoading(false));
