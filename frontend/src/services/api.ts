@@ -225,6 +225,9 @@ export const deleteArea = (propertyId: number, areaId: number): Promise<void> =>
 export const parseMapsUrl = (url: string): Promise<{ address: string; city: string; zip_code: string; raw: string; error?: string }> =>
   api.get('/api/parse-maps-url', { params: { url } }).then(r => r.data);
 
+export const geocodeAddress = (address: string): Promise<{ lat: number | null; lng: number | null }> =>
+  api.get('/api/geocode', { params: { address } }).then(r => r.data);
+
 // ---- Demo mode: lightweight scenario simulation ----
 function _applyScenarioToDemoData(base: DCFResult, params: Record<string, number>): DCFResult {
   const rentGrowth = params.rent_growth_rate ?? 0.02;

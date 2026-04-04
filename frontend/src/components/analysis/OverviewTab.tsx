@@ -1,8 +1,10 @@
+import { useEffect, useState } from 'react';
 import { TrendingUp, Shield, MapPin, BarChart3, Users, Euro } from 'lucide-react';
 import { RadarChart, PolarGrid, PolarAngleAxis, Radar, ResponsiveContainer } from 'recharts';
 import type { FullAnalysis, Property } from '../../types';
 import { formatEur, formatIRR, formatMultiple, getRiskBg, formatPctDirect, formatSqm } from '../../utils/format';
 import ScoreRing from '../ui/ScoreRing';
+import { geocodeAddress } from '../../services/api';
 
 interface Props { property: Property; analysis: FullAnalysis; }
 
@@ -21,9 +23,17 @@ export default function OverviewTab({ property, analysis }: Props) {
   const leitValue = isResidential ? de.vergleichswertverfahren.vergleichswert : de.ertragswertverfahren.ertragswert;
   const leitLabel = isResidential ? 'Vergleichswert' : 'Ertragswert';
 
-  const addressQ = [property.address, property.zip_code, property.city].filter(Boolean).join(', ');
-  const streetViewSrc = addressQ
-    ? `https://www.google.com/maps?q=${encodeURIComponent(addressQ)}&layer=c&output=embed`
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  useEffect(() => {
+    const addressQ = [property.address, property.zip_code, property.city].filter(Boolean).join(', ');
+    if (!addressQ) return;
+    geocodeAddress(addressQ).then(r => {
+      if (r.lat && r.lng) setCoords({ lat: r.lat, lng: r.lng });
+    }).catch(() => {});
+  }, [property.address, property.zip_code, property.city]);
+
+  const streetViewSrc = coords
+    ? `https://www.google.com/maps?ll=${coords.lat},${coords.lng}&layer=c&output=embed&z=17`
     : null;
 
   return (

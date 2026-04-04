@@ -229,6 +229,24 @@ async def parse_maps_url(url: str):
     }
 
 
+@router.get("/geocode")
+async def geocode(address: str):
+    """Geocodiert eine Adresse via Nominatim und gibt lat/lng zurück."""
+    headers = {"User-Agent": "REAnalystPro/1.0", "Accept": "application/json"}
+    try:
+        async with httpx.AsyncClient(headers=headers, timeout=8) as client:
+            resp = await client.get(
+                "https://nominatim.openstreetmap.org/search",
+                params={"q": address, "format": "json", "limit": 1, "countrycodes": "de"}
+            )
+        data = resp.json()
+        if data:
+            return {"lat": float(data[0]["lat"]), "lng": float(data[0]["lon"])}
+    except Exception:
+        pass
+    return {"lat": None, "lng": None}
+
+
 @router.get("/gif-types")
 def gif_types():
     """Return gif Nutzungsarten, Etagen und Lagequalitäten für Dropdowns."""
