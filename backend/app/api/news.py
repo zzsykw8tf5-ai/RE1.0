@@ -43,6 +43,11 @@ _OSM_SHOP_LABELS = {
     "pet": "Tierhandlung", "garden_centre": "Gartencenter",
     "kiosk": "Kiosk", "alcohol": "Spirituosen",
     "office": "Büro",
+    # Healthcare / Gesundheit
+    "nursing_home": "Pflegeheim", "social_facility": "Sozialeinrichtung",
+    "hospital": "Krankenhaus", "clinic": "Klinik", "doctors": "Arztpraxis",
+    "dentist": "Zahnarztpraxis", "physiotherapist": "Physiotherapie",
+    "retirement_home": "Altenheim",
 }
 
 
@@ -120,17 +125,22 @@ async def _overpass_tenants(lat: float, lng: float, radius: int = 150) -> list[d
     within `radius` metres of the given coordinates.
     Returns list of {name, type_label, is_company}.
     """
-    # Query all nodes/ways/relations with a name tag within radius
+    # Query all nodes/ways with shops, offices, amenities and healthcare tags
     overpass_query = f"""
-[out:json][timeout:12];
+[out:json][timeout:15];
 (
-  node["name"](around:{radius},{lat},{lng});
   node["shop"](around:{radius},{lat},{lng});
   node["amenity"](around:{radius},{lat},{lng});
   node["office"](around:{radius},{lat},{lng});
+  node["healthcare"](around:{radius},{lat},{lng});
   way["name"]["shop"](around:{radius},{lat},{lng});
   way["name"]["amenity"](around:{radius},{lat},{lng});
   way["name"]["office"](around:{radius},{lat},{lng});
+  way["name"]["healthcare"](around:{radius},{lat},{lng});
+  way["amenity"="nursing_home"](around:{radius},{lat},{lng});
+  way["amenity"="hospital"](around:{radius},{lat},{lng});
+  way["amenity"="clinic"](around:{radius},{lat},{lng});
+  way["amenity"="social_facility"](around:{radius},{lat},{lng});
 );
 out tags;
 """.strip()
@@ -158,7 +168,8 @@ out tags;
         shop = tags.get("shop", "")
         amenity = tags.get("amenity", "")
         office = tags.get("office", "")
-        kind = shop or amenity or office or "Gewerbe"
+        healthcare = tags.get("healthcare", "")
+        kind = shop or amenity or healthcare or office or "Gewerbe"
         type_label = _OSM_SHOP_LABELS.get(kind, kind.replace("_", " ").capitalize())
 
         results.append({
@@ -190,9 +201,10 @@ async def suggest_tenants(address: str, city: str = "") -> dict:
 
     if coords:
         lat, lng = coords
-        results = await _overpass_tenants(lat, lng, radius=150)
+        # Use larger radius (500m) to also catch healthcare/social facilities
+        results = await _overpass_tenants(lat, lng, radius=500)
         if results:
-            return {"suggestions": results[:12]}
+            return {"suggestions": results[:15]}
 
     # Fallback: DuckDuckGo search for company names at this address
     ddg_url = f"https://html.duckduckgo.com/html/?q={quote_plus(f'{addr} {city_part} GmbH AG Unternehmen Gewerbe')}&kl=de-de"
