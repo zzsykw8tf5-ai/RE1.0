@@ -34,7 +34,7 @@ class Property(Base):
     city = Column(String(100))
     zip_code = Column(String(20))
     property_type = Column(
-        Enum("RESIDENTIAL", "OFFICE", "RETAIL", "INDUSTRIAL", "MIXED", name="property_type_enum"),
+        Enum("RESIDENTIAL", "OFFICE", "RETAIL", "INDUSTRIAL", "MIXED", "HEALTHCARE", name="property_type_enum"),
         default="RESIDENTIAL"
     )
     construction_year = Column(Integer)

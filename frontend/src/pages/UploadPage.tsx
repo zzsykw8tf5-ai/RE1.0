@@ -16,12 +16,14 @@ const PROPERTY_TYPES = [
   { value: 'RETAIL',      label: 'Einzelhandel',        icon: '🛍️' },
   { value: 'RESIDENTIAL', label: 'Wohnen',              icon: '🏠' },
   { value: 'INDUSTRIAL',  label: 'Industrie / Logistik',icon: '🏭' },
+  { value: 'HEALTHCARE',  label: 'Gesundheit',          icon: '🏥' },
   { value: 'MIXED',       label: 'Gemischt',            icon: '🏙️' },
 ];
 
 const TYPE_LABELS: Record<string, string> = {
   RESIDENTIAL: 'Mehrfamilienhaus', OFFICE: 'Bürogebäude',
-  RETAIL: 'Einzelhandelsobjekt', INDUSTRIAL: 'Logistikimmobilie', MIXED: 'Mischnutzungsobjekt',
+  RETAIL: 'Einzelhandelsobjekt', INDUSTRIAL: 'Logistikimmobilie',
+  HEALTHCARE: 'Gesundheitsimmobilie', MIXED: 'Mischnutzungsobjekt',
 };
 
 function buildAutoName(type: string, city: string, address: string): string {

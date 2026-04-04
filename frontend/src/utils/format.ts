@@ -74,6 +74,7 @@ export function propertyTypeLabel(type: string): string {
     OFFICE: 'Büro',
     RETAIL: 'Einzelhandel',
     INDUSTRIAL: 'Industrie',
+    HEALTHCARE: 'Gesundheit',
     MIXED: 'Gemischt',
   };
   return map[type] || type;

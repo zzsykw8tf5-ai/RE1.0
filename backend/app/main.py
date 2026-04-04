@@ -48,18 +48,30 @@ app.include_router(market_router)
 app.include_router(news_router)
 app.include_router(areas_router)
 
-# Runtime migrations – add new columns if missing
+# Runtime migrations – add new columns + extend enums if missing
 from sqlalchemy import text as _text
-for _stmt in [
+from .database import IS_SQLITE
+
+_col_migrations = [
     "ALTER TABLE properties ADD COLUMN photo_url VARCHAR",
     "ALTER TABLE rental_areas ADD COLUMN beds INTEGER",
-]:
+]
+for _stmt in _col_migrations:
     try:
         with engine.connect() as _conn:
             _conn.execute(_text(_stmt))
             _conn.commit()
     except Exception:
-        pass  # Column already exists
+        pass  # Already exists
+
+# PostgreSQL: extend property_type_enum with HEALTHCARE if not present
+if not IS_SQLITE:
+    try:
+        with engine.connect() as _conn:
+            _conn.execute(_text("ALTER TYPE property_type_enum ADD VALUE IF NOT EXISTS 'HEALTHCARE'"))
+            _conn.commit()
+    except Exception:
+        pass
 
 # Static files for uploads (lokal)
 os.makedirs("uploads", exist_ok=True)

@@ -1,4 +1,4 @@
-export type PropertyType = 'RESIDENTIAL' | 'OFFICE' | 'RETAIL' | 'INDUSTRIAL' | 'MIXED';
+export type PropertyType = 'RESIDENTIAL' | 'OFFICE' | 'RETAIL' | 'INDUSTRIAL' | 'MIXED' | 'HEALTHCARE';
 export type TenantType = 'ANCHOR' | 'STANDARD' | 'SMALL';
 export type Creditworthiness = 'A' | 'B' | 'C';
 export type RiskCategory = 'Niedrig' | 'Mittel' | 'Erhöht' | 'Hoch';

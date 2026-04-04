@@ -13,6 +13,7 @@ const TYPE_COLORS: Record<string, string> = {
   OFFICE: '#0066CC',
   RETAIL: '#FF9500',
   INDUSTRIAL: '#6E6E73',
+  HEALTHCARE: '#FF2D55',
   MIXED: '#AF52DE',
 };
 

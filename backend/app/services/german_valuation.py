@@ -19,6 +19,7 @@ LIEGENSCHAFTSZINSSAETZE = {
     "RETAIL":      0.055,   # Einzelhandel: 4–7%
     "INDUSTRIAL":  0.065,   # Industrie/Logistik: 5–7%
     "MIXED":       0.045,   # Gemischt: 4–5.5%
+    "HEALTHCARE":  0.055,   # Gesundheitsimmobilien: 5–6.5% (CBRE/JLL 2023)
 }
 
 NORMALHERSTELLUNGSKOSTEN_EUR_PER_BGF = {
@@ -27,6 +28,7 @@ NORMALHERSTELLUNGSKOSTEN_EUR_PER_BGF = {
     "RETAIL":      1_700,
     "INDUSTRIAL":  900,
     "MIXED":       1_750,
+    "HEALTHCARE":  2_400,   # Pflegeheime/Kliniken: höherer Ausbaustandard
 }
 
 GESAMTNUTZUNGSDAUER = {
@@ -35,6 +37,7 @@ GESAMTNUTZUNGSDAUER = {
     "RETAIL":      50,
     "INDUSTRIAL":  40,
     "MIXED":       60,
+    "HEALTHCARE":  50,      # Pflegeheime: 40–60 Jahre
 }
 
 BEWIRTSCHAFTUNGSKOSTEN_DEFAULTS = {
@@ -67,6 +70,12 @@ BEWIRTSCHAFTUNGSKOSTEN_DEFAULTS = {
         "instandhaltung_pct": 0.08,
         "mietausfall_pct": 0.05,
         "sonstiges_pct": 0.015,
+    },
+    "HEALTHCARE": {
+        "verwaltung_pct": 0.03,
+        "instandhaltung_pct": 0.12,   # Hoher Verschleiß durch Betrieb
+        "mietausfall_pct": 0.02,      # Lange Pachtverträge → geringer Leerstand
+        "sonstiges_pct": 0.02,
     },
 }
 
