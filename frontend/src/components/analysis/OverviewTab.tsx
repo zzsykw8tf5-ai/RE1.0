@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
-import { TrendingUp, Shield, MapPin, BarChart3, Users, Euro } from 'lucide-react';
+import { TrendingUp, Shield, MapPin, BarChart3, Users, Euro, Camera, X } from 'lucide-react';
 import { RadarChart, PolarGrid, PolarAngleAxis, Radar, ResponsiveContainer } from 'recharts';
 import type { FullAnalysis, Property } from '../../types';
 import { formatEur, formatIRR, formatMultiple, getRiskBg, formatPctDirect, formatSqm } from '../../utils/format';
 import ScoreRing from '../ui/ScoreRing';
-import { geocodeAddress } from '../../services/api';
+import { geocodeAddress, uploadPropertyPhoto, deletePropertyPhoto } from '../../services/api';
 
-interface Props { property: Property; analysis: FullAnalysis; }
+interface Props { property: Property; analysis: FullAnalysis; onPropertyUpdate?: (p: Property) => void; }
 
-export default function OverviewTab({ property, analysis }: Props) {
+export default function OverviewTab({ property, analysis, onPropertyUpdate }: Props) {
   const { german_valuation: de, us_valuation: us, dcf, location, risk } = analysis;
   const radarData = [
     { subject: 'Marktrisiko', value: 100 - risk.scores.market_risk },
@@ -23,7 +23,9 @@ export default function OverviewTab({ property, analysis }: Props) {
   const leitValue = isResidential ? de.vergleichswertverfahren.vergleichswert : de.ertragswertverfahren.ertragswert;
   const leitLabel = isResidential ? 'Vergleichswert' : 'Ertragswert';
 
+  const [photoUploading, setPhotoUploading] = useState(false);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+
   useEffect(() => {
     const addressQ = [property.address, property.zip_code, property.city].filter(Boolean).join(', ');
     if (!addressQ) return;
@@ -39,26 +41,73 @@ export default function OverviewTab({ property, analysis }: Props) {
   return (
     <div className="space-y-6 animate-fade-in">
 
-      {/* Street View + KPIs */}
+      {/* Photo / Street View + KPIs */}
       <div className="grid grid-cols-3 gap-4">
-        {/* Street View photo */}
-        {streetViewSrc && (
-          <div className="col-span-1 rounded-apple-lg overflow-hidden h-36 relative bg-apple-gray-2">
-            <iframe
-              title="Street View"
-              src={streetViewSrc}
-              width="100%"
-              height="100%"
-              style={{ border: 0, pointerEvents: 'none' }}
-              loading="lazy"
-              referrerPolicy="no-referrer-when-downgrade"
-            />
-            <div className="absolute bottom-1.5 left-2 text-[9px] text-white/80 bg-black/40 px-1.5 py-0.5 rounded">
-              {property.address}
+        {/* Photo area */}
+        <div className="col-span-1 rounded-apple-lg overflow-hidden h-36 relative bg-apple-gray-2 group">
+          {property.photo_url ? (
+            <>
+              <img
+                src={property.photo_url}
+                alt="Objektfoto"
+                className="w-full h-full object-cover"
+              />
+              <button
+                onClick={async () => {
+                  await deletePropertyPhoto(property.id);
+                  onPropertyUpdate?.({ ...property, photo_url: null });
+                }}
+                className="absolute top-1.5 right-1.5 p-1 bg-black/50 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <X size={10} />
+              </button>
+            </>
+          ) : streetViewSrc ? (
+            <>
+              <iframe
+                title="Street View"
+                src={streetViewSrc}
+                width="100%"
+                height="100%"
+                style={{ border: 0, pointerEvents: 'none' }}
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+              />
+              <div className="absolute bottom-1.5 left-2 text-[9px] text-white/80 bg-black/40 px-1.5 py-0.5 rounded">
+                {property.address}
+              </div>
+            </>
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-apple-text-tertiary">
+              <Camera size={24} />
             </div>
-          </div>
-        )}
-        <div className={`${streetViewSrc ? 'col-span-2' : 'col-span-3'} grid grid-cols-2 gap-4`}>
+          )}
+          {/* Upload overlay – always shown on hover */}
+          <label className="absolute inset-0 cursor-pointer flex items-end justify-end p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                try {
+                  setPhotoUploading(true);
+                  const updated = await uploadPropertyPhoto(property.id, file);
+                  onPropertyUpdate?.(updated);
+                } catch { /* ignore */ } finally {
+                  setPhotoUploading(false);
+                }
+              }}
+            />
+            <span className="bg-black/60 text-white text-[10px] px-2 py-1 rounded-full flex items-center gap-1">
+              <Camera size={10} />
+              {photoUploading ? 'Lädt…' : property.photo_url ? 'Ändern' : 'Foto hochladen'}
+            </span>
+          </label>
+        </div>
+
+        <div className="col-span-2 grid grid-cols-2 gap-4">
           <KpiCard icon={Euro} iconColor="text-apple-blue" label={`${leitLabel} (DE)`} value={formatEur(de.combined.final_value)} sub={`${formatEur(de.combined.price_per_sqm)}/m²`} />
           <KpiCard icon={TrendingUp} iconColor="text-apple-green" label="IRR (10J.)" value={formatIRR(dcf.metrics.irr)} sub={`EM ${formatMultiple(dcf.metrics.equity_multiple)}`} />
           <KpiCard icon={Shield} iconColor={risk.overall_risk_score < 50 ? 'text-apple-green' : 'text-apple-orange'} label="Risiko-Score" value={risk.overall_risk_score.toFixed(0)} sub={risk.risk_category} badge={<span className={`badge text-xs ${getRiskBg(risk.overall_risk_score)}`}>{risk.risk_category}</span>} />
@@ -99,6 +148,7 @@ export default function OverviewTab({ property, analysis }: Props) {
           </ResponsiveContainer>
         </div>
       </div>
+
       <div className="card">
         <h3 className="font-semibold text-apple-text mb-4 flex items-center gap-2"><TrendingUp size={15} className="text-apple-green" />DCF Schnellübersicht (10 Jahre)</h3>
         <div className="grid grid-cols-5 gap-4">
@@ -117,6 +167,7 @@ export default function OverviewTab({ property, analysis }: Props) {
           ))}
         </div>
       </div>
+
       {property.tenants && property.tenants.length > 0 && (
         <div className="card">
           <h3 className="font-semibold text-apple-text mb-4 flex items-center gap-2"><Users size={15} className="text-apple-teal" />Mieter ({property.tenants.length})</h3>
@@ -141,6 +192,7 @@ export default function OverviewTab({ property, analysis }: Props) {
           </div>
         </div>
       )}
+
       <div className="card">
         <h3 className="font-semibold text-apple-text mb-5">Risikodetail</h3>
         <div className="flex justify-around flex-wrap gap-4">

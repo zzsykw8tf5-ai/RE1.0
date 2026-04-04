@@ -48,6 +48,19 @@ app.include_router(market_router)
 app.include_router(news_router)
 app.include_router(areas_router)
 
+# Runtime migrations – add new columns if missing
+from sqlalchemy import text as _text
+for _stmt in [
+    "ALTER TABLE properties ADD COLUMN photo_url VARCHAR",
+    "ALTER TABLE rental_areas ADD COLUMN beds INTEGER",
+]:
+    try:
+        with engine.connect() as _conn:
+            _conn.execute(_text(_stmt))
+            _conn.commit()
+    except Exception:
+        pass  # Column already exists
+
 # Static files for uploads (lokal)
 os.makedirs("uploads", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")

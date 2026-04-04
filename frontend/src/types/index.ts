@@ -17,6 +17,7 @@ export interface Property {
   units: number;
   purchase_price: number;
   purchase_date: string;
+  photo_url?: string | null;
   created_at: string;
   tenants?: Tenant[];
 }
@@ -234,10 +235,32 @@ export interface RentalArea {
   name: string;
   area_sqm: number | null;
   market_rent_sqm: number | null;
+  beds: number | null;
   status: string;
   status_label: string;
   notes: string | null;
   created_at: string | null;
+}
+
+export interface HealthcareResearch {
+  label: string;
+  yield_range: string;
+  rent_range?: string;
+  rent_per_bed_day?: string;
+  typical_lease?: string;
+  operators?: string[];
+  mdk_quality?: {
+    source: string;
+    note: string;
+    url?: string;
+    transparenz_url?: string;
+    grades?: string[];
+    indicators?: string[];
+    live_search?: boolean;
+  };
+  regulation?: string;
+  risk_factors?: string[];
+  market_trends?: string;
 }
 
 export interface GifTypes {

@@ -91,7 +91,7 @@ export default function Sidebar({ properties = [] }: SidebarProps) {
           </div>
         </div>
         <div className="px-3 py-1 text-[10px] text-apple-text-tertiary text-center select-none">
-          v0.4.5 · 04.04.2026
+          v0.5.0 · 04.04.2026
         </div>
       </div>
     </aside>

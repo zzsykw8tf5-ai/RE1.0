@@ -44,6 +44,7 @@ class Property(Base):
     units = Column(Integer)
     purchase_price = Column(Float)
     purchase_date = Column(Date)
+    photo_url = Column(String, nullable=True)  # Base64 data URL or path
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 
@@ -94,16 +95,26 @@ class Scenario(Base):
 
 # gif MF/G 2017 Nutzungsarten + WoFlV Wohnfläche
 GIF_NUTZUNGSARTEN = {
-    "BUERO":        "Bürofläche",
-    "EINZELHANDEL": "Einzelhandelsfläche",
-    "LAGER":        "Lagerfläche",
-    "PRODUKTION":   "Produktionsfläche",
-    "GASTRONOMIE":  "Gastronomiefläche",
-    "PRAXIS":       "Praxis-/Medizinfläche",
-    "WOHNEN":       "Wohnfläche",
-    "HOTEL":        "Hotelfläche",
-    "SONSTIGES":    "Sonstige Fläche",
+    "BUERO":            "Bürofläche",
+    "EINZELHANDEL":     "Einzelhandelsfläche",
+    "LAGER":            "Lagerfläche",
+    "PRODUKTION":       "Produktionsfläche",
+    "GASTRONOMIE":      "Gastronomiefläche",
+    "PRAXIS":           "Praxis-/Medizinfläche",
+    "WOHNEN":           "Wohnfläche",
+    "HOTEL":            "Hotelfläche",
+    # Gesundheit & Pflege
+    "PFLEGEHEIM":       "Pflegeheim",
+    "ALTENHEIM":        "Alten-/Seniorenheim",
+    "BETREUTES_WOHNEN": "Betreutes Wohnen",
+    "KRANKENHAUS":      "Krankenhaus / Klinik",
+    "AERZTEHAUS":       "Ärztehaus",
+    "MVZ":              "Medizinisches Versorgungszentrum (MVZ)",
+    "SONSTIGES":        "Sonstige Fläche",
 }
+
+# Gesundheits-Nutzungsarten (zeigen Betten-Feld + Research-Panel)
+HEALTHCARE_NUTZUNGSARTEN = {"PFLEGEHEIM", "ALTENHEIM", "BETREUTES_WOHNEN", "KRANKENHAUS", "AERZTEHAUS", "MVZ"}
 
 ETAGEN = {
     "UG":  "Untergeschoss",
@@ -151,6 +162,9 @@ class RentalArea(Base):
 
     # Marktmiete
     market_rent_sqm = Column(Float)                   # €/m²/Monat (Richtwert)
+
+    # Gesundheitsimmobilien
+    beds = Column(Integer, nullable=True)              # Anzahl Betten/Pflegeplätze
 
     # Status
     status = Column(String(20), default="VERFUEGBAR") # key from AREA_STATUS

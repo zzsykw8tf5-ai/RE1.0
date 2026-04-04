@@ -401,3 +401,54 @@ def delete_tenant(property_id: int, tenant_id: int, db: Session = Depends(get_db
     db.delete(tenant)
     db.commit()
     return {"ok": True}
+
+
+@router.post("/properties/{property_id}/photo")
+async def upload_property_photo(
+    property_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """Upload a photo for a property. Stores as base64 data URL in DB – no filesystem required."""
+    import base64
+    prop = db.query(Property).filter_by(id=property_id).first()
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Nur Bilddateien erlaubt")
+
+    content = await file.read()
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Bild zu groß (max. 5 MB)")
+
+    # Compress with Pillow if available
+    try:
+        from PIL import Image
+        img = Image.open(io.BytesIO(content))
+        img.thumbnail((1200, 900), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=82, optimize=True)
+        content = buf.getvalue()
+        mime = "image/jpeg"
+    except ImportError:
+        mime = file.content_type or "image/jpeg"
+
+    b64 = base64.b64encode(content).decode("ascii")
+    prop.photo_url = f"data:{mime};base64,{b64}"
+    db.commit()
+    db.refresh(prop)
+    result = _property_dict(prop)
+    result["tenants"] = [_tenant_dict(t) for t in db.query(Tenant).filter_by(property_id=property_id).all()]
+    return result
+
+
+@router.delete("/properties/{property_id}/photo")
+def delete_property_photo(property_id: int, db: Session = Depends(get_db)):
+    """Remove property photo."""
+    prop = db.query(Property).filter_by(id=property_id).first()
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+    prop.photo_url = None
+    db.commit()
+    return {"ok": True}

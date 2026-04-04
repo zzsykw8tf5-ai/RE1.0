@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models.property import (
     Property, RentalArea,
-    GIF_NUTZUNGSARTEN, ETAGEN, LAGE_QUALITAETEN, AREA_STATUS,
+    GIF_NUTZUNGSARTEN, ETAGEN, LAGE_QUALITAETEN, AREA_STATUS, HEALTHCARE_NUTZUNGSARTEN,
 )
 
 router = APIRouter(prefix="/api", tags=["areas"])
@@ -31,15 +31,22 @@ from urllib.parse import urlparse as _urlparse, parse_qs as _parse_qs
 
 # ── gif Nutzungsart → Property-Typ Mapping für Marktmietdaten ─────────────────
 _NUTZUNGSART_TO_PROPTYPE = {
-    "BUERO":        "OFFICE",
-    "EINZELHANDEL": "RETAIL",
-    "LAGER":        "INDUSTRIAL",
-    "PRODUKTION":   "INDUSTRIAL",
-    "GASTRONOMIE":  "RETAIL",
-    "PRAXIS":       "OFFICE",
-    "WOHNEN":       "RESIDENTIAL",
-    "HOTEL":        "RETAIL",
-    "SONSTIGES":    "MIXED",
+    "BUERO":            "OFFICE",
+    "EINZELHANDEL":     "RETAIL",
+    "LAGER":            "INDUSTRIAL",
+    "PRODUKTION":       "INDUSTRIAL",
+    "GASTRONOMIE":      "RETAIL",
+    "PRAXIS":           "OFFICE",
+    "WOHNEN":           "RESIDENTIAL",
+    "HOTEL":            "RETAIL",
+    # Gesundheit → OFFICE als Mietbasis
+    "PFLEGEHEIM":       "OFFICE",
+    "ALTENHEIM":        "OFFICE",
+    "BETREUTES_WOHNEN": "RESIDENTIAL",
+    "KRANKENHAUS":      "OFFICE",
+    "AERZTEHAUS":       "OFFICE",
+    "MVZ":              "OFFICE",
+    "SONSTIGES":        "MIXED",
 }
 
 # Anpassungsfaktoren Lagequalität (Einzelhandel)
@@ -47,10 +54,17 @@ _LAGE_FAKTOR = {"1A": 1.6, "1B": 0.85, "NEBEN": 0.45}
 
 # Anpassungsfaktoren Nutzungsart (abweichend vom Basis-Typ)
 _NUTZUNGSART_FAKTOR = {
-    "PRODUKTION":  0.80,   # Produktion etwas günstiger als Standard-Lager
-    "GASTRONOMIE": 0.90,   # Gastronomie unter Prime-Retail
-    "PRAXIS":      1.15,   # Praxis/Medizin Premium über Standard-Büro
-    "HOTEL":       0.70,   # Hotel: Mietäquivalent niedriger (andere Struktur)
+    "PRODUKTION":       0.80,
+    "GASTRONOMIE":      0.90,
+    "PRAXIS":           1.15,
+    "HOTEL":            0.70,
+    # Gesundheitsimmobilien (CBRE/JLL DE Benchmarks 2023)
+    "PFLEGEHEIM":       1.20,   # ~14-20 €/m²
+    "ALTENHEIM":        1.10,   # ~13-17 €/m²
+    "BETREUTES_WOHNEN": 0.95,   # ähnlich Wohnen + Aufschlag
+    "KRANKENHAUS":      0.95,   # oft ÖD-Verträge
+    "AERZTEHAUS":       1.25,   # Premium über Büro
+    "MVZ":              1.30,   # höchste Rendite
 }
 
 # Größenrabatt (Fläche in m²)
@@ -67,7 +81,10 @@ def _auto_name(nutzungsart: str, etage: str, lage_qualitaet: Optional[str], seq:
     short = {
         "BUERO": "Büro", "EINZELHANDEL": "EH", "LAGER": "Lager",
         "PRODUKTION": "Prod.", "GASTRONOMIE": "Gastro", "PRAXIS": "Praxis",
-        "WOHNEN": "Wohn.", "HOTEL": "Hotel", "SONSTIGES": "Fl.",
+        "WOHNEN": "Wohn.", "HOTEL": "Hotel",
+        "PFLEGEHEIM": "Pflege", "ALTENHEIM": "Alten", "BETREUTES_WOHNEN": "Betreut",
+        "KRANKENHAUS": "Klinik", "AERZTEHAUS": "Arzt", "MVZ": "MVZ",
+        "SONSTIGES": "Fl.",
     }.get(nutzungsart, nutzungsart)
 
     etage_label = {
@@ -92,6 +109,7 @@ def _area_dict(a: RentalArea) -> dict:
         "name": a.name,
         "area_sqm": a.area_sqm,
         "market_rent_sqm": a.market_rent_sqm,
+        "beds": getattr(a, "beds", None),
         "status": a.status,
         "status_label": AREA_STATUS.get(a.status or "VERFUEGBAR", a.status),
         "notes": a.notes,
@@ -115,6 +133,7 @@ class AreaCreate(BaseModel):
     name: Optional[str] = None           # if None → auto-generated
     area_sqm: Optional[float] = None
     market_rent_sqm: Optional[float] = None
+    beds: Optional[int] = None
     status: str = "VERFUEGBAR"
     notes: Optional[str] = None
 
@@ -126,6 +145,7 @@ class AreaUpdate(BaseModel):
     name: Optional[str] = None
     area_sqm: Optional[float] = None
     market_rent_sqm: Optional[float] = None
+    beds: Optional[int] = None
     status: Optional[str] = None
     notes: Optional[str] = None
 
@@ -428,6 +448,7 @@ def create_area(property_id: int, data: AreaCreate, db: Session = Depends(get_db
         name=name,
         area_sqm=data.area_sqm,
         market_rent_sqm=data.market_rent_sqm,
+        beds=data.beds,
         status=data.status,
         notes=data.notes,
     )
@@ -464,3 +485,221 @@ def delete_area(property_id: int, area_id: int, db: Session = Depends(get_db)):
     db.delete(area)
     db.commit()
     return {"ok": True}
+
+
+# ── Healthcare Research ────────────────────────────────────────────────────────
+
+_HEALTHCARE_DATA = {
+    "PFLEGEHEIM": {
+        "label": "Pflegeheim",
+        "yield_range": "5.0–6.5 %",
+        "rent_range": "14–20 €/m²/Monat",
+        "rent_per_bed_day": "80–140 €/Bett/Tag (Pflegesatz inkl. Unterkunft & Verpflegung)",
+        "typical_lease": "20–25 Jahre (Doppel-Netto-Pacht)",
+        "operators": ["Korian", "Alloheim", "Orpea/Emeis", "Caritas", "AWO", "Vitanas", "Charleston"],
+        "mdk_quality": {
+            "source": "MDS / Medizinischer Dienst – Qualitätsprüfung § 114 SGB XI",
+            "grades": ["Sehr gut", "Gut", "Befriedigend", "Ausreichend"],
+            "url": "https://www.mds-ev.de/themen/pflegequalitaet.html",
+            "transparenz_url": "https://www.pflegelotse.de",
+            "note": "Seit 2019: Outcome-Indikatoren statt Schulnoten. Jährliche MDK-Prüfung. Ergebnisse öffentlich auf Pflegelotse.de / Weißer Liste.",
+            "indicators": [
+                "Dekubitusprophylaxe & Wundversorgung",
+                "Sturzprophylaxe & Schmerzmanagement",
+                "Medikamentengabe & Dokumentation",
+                "Pflege bei Demenz & Freiheitsentzug",
+                "Soziale Betreuung & Aktivierung",
+                "Hygiene & Infektionsschutz",
+            ],
+            "live_search": True,
+        },
+        "regulation": "SGB XI, Heimrecht/WTG (länderspezifisch), PpUGV (Pflegepersonaluntergrenzen), PUEG 2023",
+        "risk_factors": [
+            "Fachkräftemangel → steigende Personalkosten",
+            "Refinanzierungsrisiko bei Pflegekassensätzen",
+            "MDK-Prüfungsergebnisse beeinflussen Belegung direkt",
+            "Energiekosten: ~150–250 kWh/m²/a",
+            "Betreiberwechsel: Zulassungsübertragung komplex",
+        ],
+        "market_trends": "Demografischer Wachstumsmarkt; Leerstand <3 % in Ballungsräumen; ESG-Druck bei Bestand; Neubau mit erhöhten Anforderungen (Einzelzimmerquote >80 %)",
+    },
+    "ALTENHEIM": {
+        "label": "Alten-/Seniorenheim",
+        "yield_range": "4.8–6.2 %",
+        "rent_range": "13–18 €/m²/Monat",
+        "rent_per_bed_day": "60–110 €/Bett/Tag",
+        "typical_lease": "15–20 Jahre",
+        "operators": ["Korian", "Alloheim", "Tertianum", "Augustinum", "Diakonie", "DRK"],
+        "mdk_quality": {
+            "source": "MDS Qualitätsbericht (sofern SGB XI-Zulassung)",
+            "url": "https://www.mds-ev.de",
+            "note": "Betrifft stationäre Altenpflege mit Pflegezulassung. Reine Seniorenwohnanlagen ohne Pflegezulassung unterliegen nur Heimrecht.",
+            "live_search": False,
+        },
+        "regulation": "SGB XI (falls Pflegezulassung), Heimrecht/WTG, DIN 18040 (Barrierefreiheit)",
+        "risk_factors": [
+            "Unterschied Senioren-Wohnen vs. vollstationär: andere Zulassungspflichten",
+            "Leerstandsrisiko bei Standorten außerhalb Ballungsräume",
+        ],
+        "market_trends": "Betreutes Wohnen wächst schneller als Vollpflege; Hybridkonzepte (Pflege + Wohnen) im Trend",
+    },
+    "BETREUTES_WOHNEN": {
+        "label": "Betreutes Wohnen",
+        "yield_range": "3.8–5.0 %",
+        "rent_range": "10–16 €/m²/Monat (Kaltmiete) + Servicepauschale",
+        "rent_per_bed_day": "n/a (Mietmodell, kein Pflegesatz)",
+        "typical_lease": "Unbefristet (Wohnmietrecht) oder 5–10 Jahre",
+        "operators": ["Vitanas", "Terragon", "KWA", "Johanniter", "Volkssolidarität"],
+        "mdk_quality": {
+            "source": "Kein MDK – Heimrecht nur bei amb. Pflege-WG",
+            "note": "Betreutes Wohnen unterliegt i.d.R. nicht der MDK-Prüfpflicht. Qualitätskontrolle über Heimrecht nur wenn gleichzeitig Pflegedienstleistungen erbracht werden.",
+            "live_search": False,
+        },
+        "regulation": "Wohnraummietrecht (BGB), Serviceverträge getrennt vom Mietvertrag, ggf. WTG bei Pflegedienst",
+        "risk_factors": [
+            "Mieterschutz erschwert Repositionierung",
+            "Servicepauschale nicht indexierbar wie Gewerbemiete",
+        ],
+        "market_trends": "Stärkstes Nachfragewachstum im Senior-Living-Segment; großes institutionelles Interesse",
+    },
+    "KRANKENHAUS": {
+        "label": "Krankenhaus / Klinik",
+        "yield_range": "4.5–5.8 %",
+        "rent_range": "10–18 €/m²/Monat (Bestandsmietäquivalent)",
+        "rent_per_bed_day": "300–900 €/Bett/Tag (DRG-Erlös, nicht Miete)",
+        "typical_lease": "Sondernutzung; oft kommunales Eigentum oder Erbpacht",
+        "operators": ["Helios", "Asklepios", "Sana", "Rhön", "Unikliniken (öffentlich)"],
+        "mdk_quality": {
+            "source": "G-BA Qualitätsbericht / IQTIG (§ 136b SGB V)",
+            "url": "https://www.g-ba.de/themen/qualitaetssicherung/",
+            "note": "Krankenhäuser veröffentlichen alle 2 Jahre strukturierten Qualitätsbericht. Prüfung durch IQTIG. Mindestmengen für komplexe Eingriffe vorgeschrieben.",
+            "indicators": [
+                "Fallzahlen je Indikation (Mindestmengen § 136b SGB V)",
+                "Komplikationsraten (QSKH-RL)",
+                "Hygieneindikatoren (CDAD, MRSA)",
+                "Patientenzufriedenheit (PEQ)",
+                "Strukturqualität (Fachärzte, Geräte)",
+            ],
+            "live_search": False,
+        },
+        "regulation": "KHG, DRG-System (InEK), KHSG 2016, Krankenhausreform 2024 (Vorhaltefinanzierung + Leistungsgruppen)",
+        "risk_factors": [
+            "Reform 2024: Leistungsgruppen ersetzen Fallpauschalen → Standortunsicherheit",
+            "Investitionsstau >70 Mrd. € bundesweit",
+            "Energieintensiv: 200–300 kWh/m²/a",
+            "Öffentliche Träger dominieren → begrenzte Investoreninteressen",
+        ],
+        "market_trends": "Konsolidierung; ~25 % Schließungen bis 2030 erwartet; Spezialkliniken attraktiver als Allgemeinhäuser",
+    },
+    "AERZTEHAUS": {
+        "label": "Ärztehaus",
+        "yield_range": "4.5–5.5 %",
+        "rent_range": "14–22 €/m²/Monat",
+        "typical_lease": "5–10 Jahre (Einzelpraxis), 10–15 Jahre (BAG/MVZ)",
+        "operators": ["Einzelarztpraxen", "BAG (Berufsausübungsgemeinschaft)", "MVZ-Betreiber"],
+        "mdk_quality": {
+            "source": "KBV Qualitätssicherung / Ärztekammern (§ 135a SGB V)",
+            "url": "https://www.kbv.de/html/qualitaet.php",
+            "note": "Niedergelassene Ärzte unterliegen KV-Qualitätssicherung. Pflicht-QM: QEP, EPA oder KTQ je nach Fachgruppe.",
+            "live_search": False,
+        },
+        "regulation": "KV-Zulassungsrecht, MBO-Ä, DSGVO (Praxis-DSFA), Barrierefreiheit DIN 18040",
+        "risk_factors": [
+            "Einzelarztpraxis: Mietausfall bei Praxisaufgabe/Tod",
+            "Zulassung nicht automatisch übertragbar → Nachmietersuche komplex",
+            "Umbaukosten bei Mieterwechsel",
+        ],
+        "market_trends": "Nachfrage steigt durch Ärztemangel; BAG & MVZ als Wachstumssegment; ESG bei Neubauten",
+    },
+    "MVZ": {
+        "label": "Medizinisches Versorgungszentrum (MVZ)",
+        "yield_range": "4.2–5.2 %",
+        "rent_range": "16–25 €/m²/Monat",
+        "typical_lease": "10–15 Jahre (oft mit Verlängerungsoption)",
+        "operators": ["Primacare", "Heartbeat Medical", "MedKonzept", "Helios MVZ", "KKH", "Klinikträger-MVZ"],
+        "mdk_quality": {
+            "source": "KV-Qualitätssicherung + G-BA sektorenübergreifend",
+            "url": "https://www.g-ba.de",
+            "note": "MVZ unterliegt denselben QS-Maßnahmen wie Praxen (§ 135a SGB V) plus ggf. sektorenübergreifenden G-BA-QS-Richtlinien.",
+            "indicators": [
+                "Facharztstellen-Besetzung",
+                "Abrechnungskonformität (KV-Prüfung)",
+                "Hygieneplan",
+                "Notfallversorgung (sofern Zulassung)",
+            ],
+            "live_search": False,
+        },
+        "regulation": "§ 95 SGB V (MVZ-Gründungsrecht), GmbH-Recht, KV-Zulassung, § 95 Abs. 1a SGB V (Investorenbeschränkungen)",
+        "risk_factors": [
+            "Trägerwechsel möglich → Mieterbonitäts-Due-Diligence kritisch",
+            "Investorengeführte MVZ unter reg. Druck",
+            "Abhängigkeit von KV-Zulassung und Sitz-Übertragung",
+        ],
+        "market_trends": "Stärkstes Wachstum im Gesundheitsimmobilien-Segment; Private-Equity-Konsolidierung; Standorte nahe Krankenhäuser bevorzugt",
+    },
+}
+
+
+@router.get("/healthcare-research/{nutzungsart}")
+def get_healthcare_research(nutzungsart: str):
+    """Branchenspezifische Research-Daten für Gesundheitsimmobilien."""
+    data = _HEALTHCARE_DATA.get(nutzungsart.upper())
+    if not data:
+        raise HTTPException(404, f"Keine Daten für Nutzungsart '{nutzungsart}'")
+    return data
+
+
+@router.get("/healthcare-research")
+def list_healthcare_research():
+    """Alle verfügbaren Gesundheits-Nutzungsarten mit Research."""
+    return {k: {"label": v["label"], "yield_range": v["yield_range"]} for k, v in _HEALTHCARE_DATA.items()}
+
+
+@router.get("/mdk-search")
+async def mdk_quality_search(name: str, city: str = ""):
+    """
+    Sucht MDK-Qualitätsdaten für ein Pflegeheim via Pflegelotse / MDS.
+    Gibt verfügbare öffentliche Qualitätsinformationen zurück.
+    """
+    query = f"{name} {city}".strip()
+    results = []
+
+    # Pflegelotse.de – öffentliche Suchfunktion
+    try:
+        headers = {
+            "User-Agent": "REAnalystPro/1.0 (healthcare research tool)",
+            "Accept": "application/json, text/html",
+        }
+        async with httpx.AsyncClient(headers=headers, timeout=10, follow_redirects=True) as client:
+            # Try Pflegelotse search API
+            resp = await client.get(
+                "https://www.weisse-liste.de/de/pflegeheime/suche/",
+                params={"q": query, "format": "json"},
+            )
+            if resp.status_code == 200:
+                try:
+                    data = resp.json()
+                    for item in (data.get("results") or data.get("items") or [])[:5]:
+                        results.append({
+                            "name": item.get("name", ""),
+                            "address": item.get("address", ""),
+                            "rating": item.get("rating") or item.get("quality_score"),
+                            "source": "Weiße Liste",
+                        })
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    return {
+        "query": query,
+        "results": results,
+        "sources": [
+            {"name": "Pflegelotse (Verbraucherzentrale)", "url": "https://www.pflegelotse.de/"},
+            {"name": "Weiße Liste", "url": "https://www.weisse-liste.de/de/pflegeheime/suche/"},
+            {"name": "MDS Pflegequalität", "url": "https://www.mds-ev.de/themen/pflegequalitaet.html"},
+            {"name": "Heimverzeichnis.de", "url": f"https://www.heimverzeichnis.de/?search={query.replace(' ', '+')}"},
+        ],
+        "note": "Direkte MDK-Berichte sind nicht öffentlich als API verfügbar. Klicke auf die Quellen für die aktuellen Prüfberichte.",
+    }
+

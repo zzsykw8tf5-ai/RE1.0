@@ -1,10 +1,12 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ChevronLeft, Plus, Pencil, Trash2, X, Check, Layers, MapPin, RefreshCw, Info, Home } from 'lucide-react';
+import { ChevronLeft, Plus, Pencil, Trash2, X, Check, Layers, MapPin, RefreshCw, Info, Home, Heart, ExternalLink } from 'lucide-react';
 import TopBar from '../components/Layout/TopBar';
-import { getProperty, listAreas, createArea, updateArea, deleteArea, getGifTypes, getAreaRent, getOsmEstimate, updateProperty } from '../services/api';
-import type { Property, RentalArea, GifTypes, AreaRentEstimate, OsmBuildingEstimate } from '../types';
+import { getProperty, listAreas, createArea, updateArea, deleteArea, getGifTypes, getAreaRent, getOsmEstimate, updateProperty, getHealthcareResearch } from '../services/api';
+import type { Property, RentalArea, GifTypes, AreaRentEstimate, OsmBuildingEstimate, HealthcareResearch } from '../types';
 import { formatSqm, formatEur } from '../utils/format';
+
+const HEALTHCARE_TYPES = new Set(['PFLEGEHEIM', 'ALTENHEIM', 'BETREUTES_WOHNEN', 'KRANKENHAUS', 'AERZTEHAUS', 'MVZ']);
 
 type AreaForm = {
   nutzungsart: string;
@@ -13,6 +15,7 @@ type AreaForm = {
   name: string;
   area_sqm: string;
   market_rent_sqm: string;
+  beds: string;
   status: string;
   notes: string;
 };
@@ -24,6 +27,7 @@ const emptyForm = (): AreaForm => ({
   name: '',
   area_sqm: '',
   market_rent_sqm: '',
+  beds: '',
   status: 'VERFUEGBAR',
   notes: '',
 });
@@ -101,6 +105,9 @@ export default function AreaPage() {
   const [osmLoading, setOsmLoading] = useState(false);
   const [osmAccepted, setOsmAccepted] = useState(false);
 
+  // Healthcare research panel
+  const [healthcareResearch, setHealthcareResearch] = useState<HealthcareResearch | null>(null);
+
   // Area suggestions from OSM
   const [areaSuggestions, setAreaSuggestions] = useState<AreaSuggestion[]>([]);
   const [selectedSuggestions, setSelectedSuggestions] = useState<Set<number>>(new Set());
@@ -151,10 +158,20 @@ export default function AreaPage() {
     return () => clearTimeout(t);
   }, [form.nutzungsart, form.area_sqm, form.lage_qualitaet, formOpen, property, fetchRentHint]);
 
+  // Load healthcare research when nutzungsart changes in form
+  useEffect(() => {
+    if (!formOpen) return;
+    setHealthcareResearch(null);
+    if (HEALTHCARE_TYPES.has(form.nutzungsart)) {
+      getHealthcareResearch(form.nutzungsart).then(setHealthcareResearch).catch(() => {});
+    }
+  }, [form.nutzungsart, formOpen]);
+
   const openCreate = () => {
     setEditingArea(null);
     setForm(emptyForm());
     setRentHint(null);
+    setHealthcareResearch(null);
     setFormError('');
     setFormOpen(true);
   };
@@ -168,12 +185,17 @@ export default function AreaPage() {
       name: a.name,
       area_sqm: a.area_sqm != null ? String(a.area_sqm) : '',
       market_rent_sqm: a.market_rent_sqm != null ? String(a.market_rent_sqm) : '',
+      beds: a.beds != null ? String(a.beds) : '',
       status: a.status,
       notes: a.notes ?? '',
     });
     setRentHint(null);
+    setHealthcareResearch(null);
     setFormError('');
     setFormOpen(true);
+    if (HEALTHCARE_TYPES.has(a.nutzungsart)) {
+      getHealthcareResearch(a.nutzungsart).then(setHealthcareResearch).catch(() => {});
+    }
   };
 
   const handleSave = async () => {
@@ -187,6 +209,7 @@ export default function AreaPage() {
         name: form.name || null,
         area_sqm: form.area_sqm ? Number(form.area_sqm) : null,
         market_rent_sqm: form.market_rent_sqm ? Number(form.market_rent_sqm) : null,
+        beds: form.beds ? Number(form.beds) : null,
         status: form.status,
         notes: form.notes || null,
       };
@@ -489,6 +512,7 @@ export default function AreaPage() {
                       <span>{area.etage_label}</span>
                       {area.lage_label && <span>{area.lage_label}</span>}
                       {area.area_sqm != null && <span>{area.area_sqm.toLocaleString('de-DE')} m²</span>}
+                      {area.beds != null && <span className="flex items-center gap-0.5"><Heart size={10} className="text-rose-500" />{area.beds} Betten</span>}
                       {area.market_rent_sqm != null && (
                         <span className="text-apple-blue font-medium">
                           {area.market_rent_sqm.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €/m²/Mo
@@ -593,6 +617,23 @@ export default function AreaPage() {
                 />
               </div>
 
+              {/* Anzahl Betten – nur für Gesundheitsimmobilien */}
+              {HEALTHCARE_TYPES.has(form.nutzungsart) && (
+                <div>
+                  <label className="block text-xs font-medium text-apple-text-secondary mb-1">
+                    Anzahl der Betten <span className="text-apple-text-tertiary font-normal">(Pflegeplätze)</span>
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={form.beds}
+                    onChange={e => setForm(f => ({ ...f, beds: e.target.value }))}
+                    placeholder="z.B. 80"
+                    className="w-full px-3 py-2 rounded-apple border border-apple-gray-3 text-sm focus:outline-none focus:border-apple-blue focus:ring-2 focus:ring-apple-blue/20 bg-white"
+                  />
+                </div>
+              )}
+
               {/* Market Rent + Hint */}
               <div>
                 <label className="block text-xs font-medium text-apple-text-secondary mb-1">
@@ -671,6 +712,62 @@ export default function AreaPage() {
                   className="w-full px-3 py-2 rounded-apple border border-apple-gray-3 text-sm focus:outline-none focus:border-apple-blue focus:ring-2 focus:ring-apple-blue/20 bg-white resize-none"
                 />
               </div>
+
+              {/* Healthcare Research Panel */}
+              {healthcareResearch && (
+                <div className="rounded-apple border border-rose-200 bg-rose-50 p-3 space-y-2">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Heart size={13} className="text-rose-600" />
+                    <span className="text-xs font-semibold text-rose-800">Research: {healthcareResearch.label}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div><span className="text-rose-600 font-medium">Rendite:</span> <span className="text-rose-900">{healthcareResearch.yield_range}</span></div>
+                    {healthcareResearch.rent_range && <div><span className="text-rose-600 font-medium">Miete:</span> <span className="text-rose-900">{healthcareResearch.rent_range}</span></div>}
+                    {healthcareResearch.rent_per_bed_day && <div className="col-span-2"><span className="text-rose-600 font-medium">Pflegesatz:</span> <span className="text-rose-900">{healthcareResearch.rent_per_bed_day}</span></div>}
+                    {healthcareResearch.typical_lease && <div className="col-span-2"><span className="text-rose-600 font-medium">Laufzeit:</span> <span className="text-rose-900">{healthcareResearch.typical_lease}</span></div>}
+                  </div>
+                  {healthcareResearch.mdk_quality && (
+                    <div className="border-t border-rose-200 pt-2 text-xs">
+                      <div className="font-medium text-rose-700 mb-0.5">Qualitätsprüfung: {healthcareResearch.mdk_quality.source}</div>
+                      <p className="text-rose-800 leading-relaxed">{healthcareResearch.mdk_quality.note}</p>
+                      <div className="flex gap-2 mt-1 flex-wrap">
+                        {healthcareResearch.mdk_quality.url && (
+                          <a href={healthcareResearch.mdk_quality.url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-rose-600 hover:underline">
+                            <ExternalLink size={10} /> MDS
+                          </a>
+                        )}
+                        {healthcareResearch.mdk_quality.transparenz_url && (
+                          <a href={healthcareResearch.mdk_quality.transparenz_url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-rose-600 hover:underline">
+                            <ExternalLink size={10} /> Pflegelotse
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {healthcareResearch.regulation && (
+                    <div className="border-t border-rose-200 pt-2 text-xs">
+                      <span className="font-medium text-rose-700">Regulatorik: </span>
+                      <span className="text-rose-800">{healthcareResearch.regulation}</span>
+                    </div>
+                  )}
+                  {healthcareResearch.risk_factors && healthcareResearch.risk_factors.length > 0 && (
+                    <div className="border-t border-rose-200 pt-2 text-xs">
+                      <div className="font-medium text-rose-700 mb-1">Risikofaktoren:</div>
+                      <ul className="space-y-0.5">
+                        {healthcareResearch.risk_factors.map((r, i) => (
+                          <li key={i} className="flex gap-1.5 text-rose-800"><span className="text-rose-400 flex-shrink-0">•</span>{r}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {healthcareResearch.market_trends && (
+                    <div className="border-t border-rose-200 pt-2 text-xs">
+                      <span className="font-medium text-rose-700">Markttrends: </span>
+                      <span className="text-rose-800">{healthcareResearch.market_trends}</span>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {formError && <p className="text-xs text-apple-red">{formError}</p>}
             </div>
