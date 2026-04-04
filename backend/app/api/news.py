@@ -77,66 +77,117 @@ async def geocode(q: str) -> dict:
     return {}
 
 
+_COMPANY_SUFFIXES = re.compile(
+    r'([A-ZÄÖÜ][A-Za-zÄÖÜäöüß&\s\.\-]{1,50}'
+    r'(?:GmbH\s*&\s*Co\.\s*KG|GmbH\s*&\s*Co|GmbH|AG|KG|SE|UG|mbH|eG|Ltd|GbR|OHG|Inc\.?))',
+    re.UNICODE,
+)
+
+_HTML_TAG = re.compile(r'<[^>]+>')
+_HTML_ENTITY = re.compile(r'&(?:#\d+|#x[\da-fA-F]+|[a-zA-Z]+);')
+
+
+def _html_to_text(html: str) -> str:
+    text = _HTML_TAG.sub(' ', html)
+    text = _HTML_ENTITY.sub(' ', text)
+    return text
+
+
+def _extract_companies(raw_html: str, seen: set[str]) -> list[dict]:
+    """Extract all company names (with legal suffix) from raw HTML."""
+    text = _html_to_text(raw_html)
+    results = []
+    for m in _COMPANY_SUFFIXES.finditer(text):
+        name = ' '.join(m.group(1).split())  # normalise whitespace
+        name = name.strip('.,;: ')
+        nl = name.lower()
+        if nl in seen or len(name) < 5 or len(name) > 90:
+            continue
+        if any(skip in nl for skip in _SKIP_PHRASES):
+            continue
+        seen.add(nl)
+        results.append({"name": name, "is_company": True})
+    return results
+
+
+async def _ddg_search(query: str, timeout: int = 9) -> str:
+    """Fetch DuckDuckGo HTML results for a query. Returns raw HTML or ''."""
+    url = f"https://html.duckduckgo.com/html/?q={quote_plus(query)}&kl=de-de"
+    try:
+        async with httpx.AsyncClient(headers=_HEADERS, timeout=timeout, follow_redirects=True) as client:
+            resp = await client.get(url)
+        return resp.text if resp.status_code == 200 else ""
+    except Exception:
+        return ""
+
+
+async def _northdata_search(address: str, city: str) -> list[dict]:
+    """
+    Scrape northdata.de for companies registered at this address.
+    northdata.de is a German company register aggregator.
+    """
+    query = f"{address} {city}".strip()
+    url = f"https://www.northdata.de/{quote_plus(query)}"
+    try:
+        async with httpx.AsyncClient(headers=_HEADERS, timeout=8, follow_redirects=True) as client:
+            resp = await client.get(url)
+        if resp.status_code != 200:
+            return []
+        html = resp.text
+        seen: set[str] = set()
+        # northdata lists company names in <strong> or heading tags
+        candidates = re.findall(r'<(?:strong|h\d|a)[^>]*>([^<]{4,80})</(?:strong|h\d|a)>', html)
+        results = []
+        for raw in candidates[:20]:
+            name = _html_to_text(raw).strip()
+            if _COMPANY_SUFFIXES.search(name):
+                nl = name.lower()
+                if nl not in seen:
+                    seen.add(nl)
+                    results.append({"name": name.strip('.,; '), "is_company": True})
+        return results
+    except Exception:
+        return []
+
+
 @router.get("/suggest-tenants")
 async def suggest_tenants(address: str, city: str = "") -> dict:
     """
-    Search DuckDuckGo for companies/tenants at the given address.
-    Returns a list of name suggestions for commercial tenant fields.
+    Find commercial tenants registered at the given address.
+    Uses northdata.de (primary) and two DuckDuckGo queries (secondary).
     """
-    query = f'"{address}" {city} Unternehmen Mieter Büro Standort'.strip()
-    encoded = quote_plus(query)
-    url = f"https://html.duckduckgo.com/html/?q={encoded}&kl=de-de"
+    import asyncio
 
+    if not address or len(address.strip()) < 3:
+        return {"suggestions": []}
+
+    addr = address.strip()
+    city_part = city.strip()
+
+    # Three parallel searches
+    nd_task = _northdata_search(addr, city_part)
+    ddg1_task = _ddg_search(f'"{addr}" {city_part} GmbH AG Unternehmen Gewerbe')
+    ddg2_task = _ddg_search(f'{addr} {city_part} Gewerbemieter ansässige Unternehmen Firma')
+
+    nd_results, ddg1_html, ddg2_html = await asyncio.gather(nd_task, ddg1_task, ddg2_task)
+
+    seen: set[str] = set()
     suggestions: list[dict] = []
-    try:
-        async with httpx.AsyncClient(headers=_HEADERS, timeout=10, follow_redirects=True) as client:
-            resp = await client.get(url)
 
-        if resp.status_code != 200:
-            return {"suggestions": suggestions}
+    # northdata results are highest quality
+    for item in nd_results:
+        nl = item["name"].lower()
+        if nl not in seen:
+            seen.add(nl)
+            suggestions.append(item)
 
-        html = resp.text
+    # DuckDuckGo: extract company names from raw HTML
+    for html in [ddg1_html, ddg2_html]:
+        if html:
+            suggestions.extend(_extract_companies(html, seen))
 
-        # Extract result titles (company/page names)
-        titles = re.findall(r'class="result__a"[^>]*>([^<]+)</a>', html)
-        snippets = re.findall(r'class="result__snippet"[^>]*>([^<]+)</a>', html)
-
-        seen: set[str] = set()
-        for title in titles[:10]:
-            title = re.sub(r'<[^>]+>', '', title).strip()
-            title_lower = title.lower()
-            if not title or title_lower in seen:
-                continue
-            if any(skip in title_lower for skip in _SKIP_PHRASES):
-                continue
-            if len(title) < 3 or len(title) > 80:
-                continue
-            # Prefer titles that look like company names (contain GmbH, AG, etc.)
-            is_company = any(kw in title for kw in ['GmbH', 'AG', 'KG', 'mbH', 'SE', 'eG', 'Ltd', 'GbR', 'OHG'])
-            seen.add(title_lower)
-            suggestions.append({"name": title, "is_company": is_company})
-
-        # Add snippet-derived names as lower-priority fallback
-        for snippet in snippets[:5]:
-            snippet = re.sub(r'<[^>]+>', '', snippet).strip()
-            # Try to extract company name from snippets (often "XY GmbH ...")
-            company_match = re.search(
-                r'([A-ZÄÖÜ][a-zäöüßA-ZÄÖÜ\s&\-]+(?:GmbH|AG|KG|SE|mbH|eG|Ltd|GbR|OHG))',
-                snippet,
-            )
-            if company_match:
-                name = company_match.group(1).strip()
-                name_lower = name.lower()
-                if name_lower not in seen and len(name) > 3:
-                    seen.add(name_lower)
-                    suggestions.append({"name": name, "is_company": True})
-
-    except Exception:
-        pass
-
-    # Sort: real companies first
     suggestions.sort(key=lambda x: (0 if x["is_company"] else 1))
-    return {"suggestions": suggestions[:6]}
+    return {"suggestions": suggestions[:8]}
 
 
 @router.get("/company-search")

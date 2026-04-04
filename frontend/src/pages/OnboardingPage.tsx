@@ -159,10 +159,22 @@ function TenantStep({
   });
   const [suggestions, setSuggestions] = useState<TenantSuggestion[]>([]);
   const [suggestLoading, setSuggestLoading] = useState(false);
+  const suggestFired = useRef(false);
   const [nameDropdown, setNameDropdown] = useState<{ rowIdx: number; results: CompanySuggestion[] } | null>(null);
   const nameSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isCommercial = COMMERCIAL_TYPES.includes(property.property_type);
+
+  // Auto-load address-based tenant suggestions once on mount
+  useEffect(() => {
+    if (!isCommercial || !property.address || suggestFired.current) return;
+    suggestFired.current = true;
+    setSuggestLoading(true);
+    suggestTenants(property.address, property.city ?? '')
+      .then(r => setSuggestions(r.suggestions))
+      .catch(() => {})
+      .finally(() => setSuggestLoading(false));
+  }, [isCommercial, property.address, property.city]);
 
   const handleNameChange = (i: number, value: string) => {
     updateRow(i, { name: value });
@@ -306,6 +318,46 @@ function TenantStep({
   return (
     <div>
       {market && <MarketBadge market={market} />}
+
+      {/* Address-based tenant suggestions */}
+      {isCommercial && property.address && (suggestLoading || suggestions.length > 0) && (
+        <div className="mb-4 rounded-apple border border-apple-blue/30 bg-blue-50/60 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-apple-blue/20">
+            <div className="flex items-center gap-2 text-sm font-semibold text-apple-blue">
+              <Building2 size={14} />
+              Bekannte Gewerbemieter – {property.address}{property.city ? `, ${property.city}` : ''}
+            </div>
+            <button
+              onClick={handleSuggestTenants}
+              disabled={suggestLoading}
+              className="text-[11px] text-apple-blue hover:underline disabled:opacity-50 flex items-center gap-1"
+            >
+              {suggestLoading ? <LoadingSpinner /> : <Search size={11} />}
+              {suggestLoading ? 'Suche läuft…' : 'Neu suchen'}
+            </button>
+          </div>
+          <div className="px-4 py-3">
+            {suggestLoading && suggestions.length === 0 ? (
+              <div className="flex items-center gap-2 text-xs text-apple-text-tertiary">
+                <LoadingSpinner /> Suche nach Gewerbermieter an dieser Adresse…
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {suggestions.map((s, i) => (
+                  <button
+                    key={i}
+                    onClick={() => applySuggestion(s.name)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full bg-white border border-apple-blue/30 text-apple-text hover:bg-blue-100 hover:border-apple-blue transition-colors shadow-sm"
+                  >
+                    <Building2 size={10} className="text-apple-blue flex-shrink-0" />
+                    {s.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Summary bar */}
       {savedTenants.length > 0 && (
@@ -472,35 +524,6 @@ function TenantStep({
         ))}
       </div>
 
-      {/* Tenant suggestions from address (commercial only) */}
-      {isCommercial && property.address && (
-        <div className="mb-4">
-          <button
-            onClick={handleSuggestTenants}
-            disabled={suggestLoading}
-            className="btn-secondary text-xs flex items-center gap-1.5 disabled:opacity-50"
-          >
-            {suggestLoading ? <LoadingSpinner /> : <Search size={12} />}
-            Mieter aus Adresse suchen
-          </button>
-          {suggestions.length > 0 && (
-            <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-apple">
-              <div className="text-[10px] font-semibold text-apple-blue mb-2 uppercase tracking-wide">
-                Gefundene Unternehmen an {property.address} – klicken zum Übernehmen
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {suggestions.map((s, i) => (
-                  <button key={i} onClick={() => applySuggestion(s.name)}
-                    className="px-2.5 py-1 text-xs rounded-full bg-white border border-blue-300 text-apple-text hover:bg-blue-100 transition-colors flex items-center gap-1">
-                    {s.is_company && <Building2 size={10} className="text-apple-blue" />}
-                    {s.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Vacancy summary */}
       {property.total_area_sqm > 0 && (
