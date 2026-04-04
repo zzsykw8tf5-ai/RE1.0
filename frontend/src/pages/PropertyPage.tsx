@@ -26,7 +26,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'scenarios', label: 'Szenarien' },
 ];
 
-const PROPERTY_TYPES = ['RESIDENTIAL', 'OFFICE', 'RETAIL', 'INDUSTRIAL', 'MIXED'] as const;
+const PROPERTY_TYPES = ['RESIDENTIAL', 'OFFICE', 'RETAIL', 'INDUSTRIAL', 'HEALTHCARE', 'MIXED'] as const;
 
 interface EditForm {
   name: string; address: string; city: string; zip_code: string;

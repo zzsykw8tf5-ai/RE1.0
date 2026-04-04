@@ -65,11 +65,22 @@ for _stmt in _col_migrations:
         pass  # Already exists
 
 # PostgreSQL: extend property_type_enum with HEALTHCARE if not present
+# Must run outside a transaction (AUTOCOMMIT)
 if not IS_SQLITE:
     try:
         with engine.connect() as _conn:
-            _conn.execute(_text("ALTER TYPE property_type_enum ADD VALUE IF NOT EXISTS 'HEALTHCARE'"))
-            _conn.commit()
+            _conn.execute(_text("SET LOCAL synchronous_commit TO off"))
+        # Use raw DBAPI connection in autocommit mode
+        raw = engine.raw_connection()
+        old_iso = raw.isolation_level
+        try:
+            raw.set_isolation_level(0)  # AUTOCOMMIT
+            cur = raw.cursor()
+            cur.execute("ALTER TYPE property_type_enum ADD VALUE IF NOT EXISTS 'HEALTHCARE'")
+            cur.close()
+        finally:
+            raw.set_isolation_level(old_iso)
+            raw.close()
     except Exception:
         pass
 
