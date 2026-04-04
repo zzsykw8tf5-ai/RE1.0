@@ -1,16 +1,30 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ChevronRight, ChevronLeft, Plus, Trash2,
   TrendingUp, Info, CheckCircle2, AlertCircle, Building2, Search,
 } from 'lucide-react';
 import TopBar from '../components/Layout/TopBar';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
-import { getProperty, getMarketData, addTenant, deleteTenant, updateTenant, suggestTenants, companySearch } from '../services/api';
-import type { Property, Tenant } from '../types';
+import { getProperty, getMarketData, addTenant, deleteTenant, updateTenant, suggestTenants, companySearch, listAreas, updateArea } from '../services/api';
+import type { Property, Tenant, RentalArea } from '../types';
 import type { TenantSuggestion, CompanySuggestion } from '../services/api';
 
 const COMMERCIAL_TYPES = ['OFFICE', 'RETAIL', 'INDUSTRIAL', 'MIXED'];
+
+const TODAY = new Date().toISOString().slice(0, 10);
+
+const LEASE_DURATION_YEARS: Record<string, number> = {
+  BUERO: 5, EINZELHANDEL: 10, LAGER: 5, PRODUKTION: 7,
+  GASTRONOMIE: 10, PRAXIS: 5, WOHNEN: 1, HOTEL: 15, SONSTIGES: 3,
+};
+
+function leaseEndDate(nutzungsart: string): string {
+  const years = LEASE_DURATION_YEARS[nutzungsart] ?? 5;
+  const d = new Date();
+  d.setFullYear(d.getFullYear() + years);
+  return d.toISOString().slice(0, 10);
+}
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -44,6 +58,7 @@ interface MarketData {
 
 interface TenantRow {
   id?: number;       // set after save
+  area_id?: number;  // linked rental area
   name: string;
   unit: string;
   area_sqm: string;
@@ -68,6 +83,7 @@ interface CostRow {
 }
 
 const emptyTenant = (): TenantRow => ({
+  area_id: undefined,
   name: '', unit: '', area_sqm: '', monthly_rent: '',
   lease_start: '', lease_end: '',
   tenant_type: 'STANDARD', creditworthiness: 'B',
@@ -132,11 +148,13 @@ function MarketBadge({ market }: { market: MarketData }) {
 // ── Step 1: Mieterliste ───────────────────────────────────────────────────────
 
 function TenantStep({
-  property, market, savedTenants, onTenantAdded, onTenantDeleted, onNext,
+  property, market, savedTenants, areas, initialAreaId, onTenantAdded, onTenantDeleted, onNext,
 }: {
   property: Property;
   market: MarketData | null;
   savedTenants: Tenant[];
+  areas: RentalArea[];
+  initialAreaId?: number;
   onTenantAdded: (t: Tenant) => void;
   onTenantDeleted: (id: number) => void;
   onNext: () => void;
@@ -155,7 +173,20 @@ function TenantStep({
       creditworthiness: t.creditworthiness || 'B',
       saved: true, saving: false, editing: false, error: '',
     }));
-    return [...preloaded, emptyTenant()];
+    const firstRow = emptyTenant();
+    if (initialAreaId) {
+      const area = areas.find(a => a.id === initialAreaId);
+      if (area) {
+        firstRow.area_id = area.id;
+        firstRow.unit = area.name;
+        firstRow.area_sqm = area.area_sqm != null ? String(area.area_sqm) : '';
+        firstRow.monthly_rent = area.market_rent_sqm && area.area_sqm
+          ? String(Math.round(area.market_rent_sqm * area.area_sqm)) : '';
+        firstRow.lease_start = TODAY;
+        firstRow.lease_end = leaseEndDate(area.nutzungsart);
+      }
+    }
+    return [...preloaded, firstRow];
   });
   const [suggestions, setSuggestions] = useState<TenantSuggestion[]>([]);
   const [suggestLoading, setSuggestLoading] = useState(false);
@@ -245,19 +276,25 @@ function TenantStep({
     const row = rows[i];
     if (!row.name.trim()) return;
     updateRow(i, { saving: true, error: '' });
+    const linkedArea = row.area_id ? areas.find(a => a.id === row.area_id) : undefined;
+    const leaseStart = row.lease_start || TODAY;
+    const leaseEnd = row.lease_end || (linkedArea ? leaseEndDate(linkedArea.nutzungsart) : '');
     try {
       const tenant = await addTenant(property.id, {
         name: row.name,
         unit: row.unit || undefined,
         area_sqm: row.area_sqm ? parseFloat(row.area_sqm) : undefined,
         monthly_rent: row.monthly_rent ? parseFloat(row.monthly_rent) : undefined,
-        lease_start: row.lease_start || undefined,
-        lease_end: row.lease_end || undefined,
+        lease_start: leaseStart,
+        lease_end: leaseEnd || undefined,
         tenant_type: row.tenant_type,
         creditworthiness: row.creditworthiness,
       });
-      updateRow(i, { saved: true, saving: false, id: tenant.id });
+      updateRow(i, { saved: true, saving: false, id: tenant.id, lease_start: leaseStart, lease_end: leaseEnd });
       onTenantAdded(tenant);
+      if (row.area_id) {
+        try { await updateArea(property.id, row.area_id, { status: 'VERMIETET' }); } catch { /* ignore */ }
+      }
     } catch {
       updateRow(i, { saving: false, error: 'Speichern fehlgeschlagen' });
     }
@@ -267,21 +304,26 @@ function TenantStep({
     const row = rows[i];
     if (!row.name.trim() || !row.id) return;
     updateRow(i, { saving: true, error: '' });
+    const linkedArea = row.area_id ? areas.find(a => a.id === row.area_id) : undefined;
+    const leaseStart = row.lease_start || TODAY;
+    const leaseEnd = row.lease_end || (linkedArea ? leaseEndDate(linkedArea.nutzungsart) : '');
     try {
       const tenant = await updateTenant(property.id, row.id, {
         name: row.name,
         unit: row.unit || undefined,
         area_sqm: row.area_sqm ? parseFloat(row.area_sqm) : undefined,
         monthly_rent: row.monthly_rent ? parseFloat(row.monthly_rent) : undefined,
-        lease_start: row.lease_start || undefined,
-        lease_end: row.lease_end || undefined,
+        lease_start: leaseStart,
+        lease_end: leaseEnd || undefined,
         tenant_type: row.tenant_type,
         creditworthiness: row.creditworthiness,
       });
       updateRow(i, { saved: true, saving: false, editing: false });
-      // Update in parent list too
       onTenantDeleted(tenant.id);
       onTenantAdded(tenant);
+      if (row.area_id) {
+        try { await updateArea(property.id, row.area_id, { status: 'VERMIETET' }); } catch { /* ignore */ }
+      }
     } catch {
       updateRow(i, { saving: false, error: 'Aktualisierung fehlgeschlagen' });
     }
@@ -418,6 +460,35 @@ function TenantStep({
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {areas.length > 0 && (
+                  <div className="col-span-2 sm:col-span-2">
+                    <label className="block text-[10px] text-apple-text-secondary mb-0.5">Fläche zuordnen</label>
+                    <select
+                      className={inputCls}
+                      value={row.area_id ?? ''}
+                      onChange={e => {
+                        const areaId = e.target.value ? Number(e.target.value) : undefined;
+                        const area = areaId ? areas.find(a => a.id === areaId) : undefined;
+                        updateRow(i, {
+                          area_id: areaId,
+                          unit: area ? area.name : row.unit,
+                          area_sqm: area?.area_sqm != null ? String(area.area_sqm) : row.area_sqm,
+                          monthly_rent: area?.market_rent_sqm && area?.area_sqm
+                            ? String(Math.round(area.market_rent_sqm * area.area_sqm)) : row.monthly_rent,
+                          lease_start: area ? (row.lease_start || TODAY) : row.lease_start,
+                          lease_end: area ? (row.lease_end || leaseEndDate(area.nutzungsart)) : row.lease_end,
+                        });
+                      }}
+                    >
+                      <option value="">– Keine Fläche –</option>
+                      {areas.filter(a => a.status === 'VERFUEGBAR' || a.id === row.area_id).map(a => (
+                        <option key={a.id} value={a.id}>
+                          {a.name} ({a.area_sqm ?? '?'} m² · {a.nutzungsart_label})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div className="col-span-2 sm:col-span-1 relative">
                   <label className="block text-[10px] text-apple-text-secondary mb-0.5">Mieter *</label>
                   <input
@@ -747,12 +818,16 @@ function CostStep({
 export default function OnboardingPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [step, setStep] = useState(0);
   const [property, setProperty] = useState<Property | null>(null);
   const [market, setMarket] = useState<MarketData | null>(null);
   const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [areas, setAreas] = useState<RentalArea[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  const initialAreaId = searchParams.get('areaId') ? Number(searchParams.get('areaId')) : undefined;
 
   useEffect(() => {
     if (!id) return;
@@ -761,6 +836,7 @@ export default function OnboardingPage() {
         const prop = await getProperty(Number(id));
         setProperty(prop);
         setTenants(prop.tenants || []);
+        listAreas(Number(id)).then(setAreas).catch(() => {});
         if (prop.city) {
           try {
             const md = await getMarketData({
@@ -829,6 +905,8 @@ export default function OnboardingPage() {
               property={property}
               market={market}
               savedTenants={tenants}
+              areas={areas}
+              initialAreaId={initialAreaId}
               onTenantAdded={t => setTenants(ts => [...ts, t])}
               onTenantDeleted={id => setTenants(ts => ts.filter(t => t.id !== id))}
               onNext={() => setStep(1)}
