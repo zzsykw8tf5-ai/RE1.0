@@ -245,6 +245,28 @@ export const getHealthcareResearch = (nutzungsart: string): Promise<HealthcareRe
 export const searchMdkQuality = (name: string, city: string) =>
   api.get('/api/mdk-search', { params: { name, city } }).then(r => r.data);
 
+// ---- Google Reviews ----
+export interface GoogleReview {
+  author: string;
+  rating: number;
+  text: string;
+  time: string;
+  profile_photo: string;
+}
+export interface GoogleReviewsResult {
+  available: boolean;
+  name?: string;
+  rating?: number;
+  user_ratings_total?: number;
+  maps_url?: string;
+  search_url?: string;
+  reviews?: GoogleReview[];
+  query: string;
+  reason?: string;
+}
+export const getGoogleReviews = (name: string, address?: string, city?: string): Promise<GoogleReviewsResult> =>
+  api.get('/api/google-reviews', { params: { name, address: address ?? '', city: city ?? '' } }).then(r => r.data);
+
 // ---- Demo mode: lightweight scenario simulation ----
 function _applyScenarioToDemoData(base: DCFResult, params: Record<string, number>): DCFResult {
   const rentGrowth = params.rent_growth_rate ?? 0.02;

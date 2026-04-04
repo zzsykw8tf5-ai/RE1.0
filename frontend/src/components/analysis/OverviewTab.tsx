@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { TrendingUp, Shield, MapPin, BarChart3, Users, Euro, Camera, X } from 'lucide-react';
+import GoogleReviewsPanel from '../ui/GoogleReviewsPanel';
 import { RadarChart, PolarGrid, PolarAngleAxis, Radar, ResponsiveContainer } from 'recharts';
 import type { FullAnalysis, Property } from '../../types';
 import { formatEur, formatIRR, formatMultiple, getRiskBg, formatPctDirect, formatSqm } from '../../utils/format';
@@ -115,6 +116,15 @@ export default function OverviewTab({ property, analysis, onPropertyUpdate }: Pr
         </div>
       </div>
 
+      {/* Google Reviews – property */}
+      {(property.address || property.name) && (
+        <GoogleReviewsPanel
+          name={property.name}
+          address={property.address}
+          city={property.city}
+        />
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
         <div className="card">
           <h3 className="font-semibold text-apple-text mb-1 flex items-center gap-2"><BarChart3 size={15} className="text-apple-blue" />Bewertung</h3>
@@ -174,7 +184,7 @@ export default function OverviewTab({ property, analysis, onPropertyUpdate }: Pr
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr className="text-xs text-apple-text-tertiary uppercase tracking-wide border-b border-apple-gray-2">
-                {['Mieter', 'Einheit', 'Fläche', 'Jahresmiete', 'Laufzeit bis', 'Bonität'].map(h => <th key={h} className="pb-2 text-left">{h}</th>)}
+                {['Mieter', 'Einheit', 'Fläche', 'Jahresmiete', 'Laufzeit bis', 'Bonität', 'Bewertung'].map(h => <th key={h} className="pb-2 text-left">{h}</th>)}
               </tr></thead>
               <tbody>
                 {property.tenants.map(t => (
@@ -185,6 +195,7 @@ export default function OverviewTab({ property, analysis, onPropertyUpdate }: Pr
                     <td className="py-2.5 font-medium text-apple-text">{formatEur(t.annual_rent)}</td>
                     <td className="py-2.5 text-apple-text-secondary">{t.lease_end ? new Date(t.lease_end).toLocaleDateString('de-DE') : 'unbefristet'}</td>
                     <td className="py-2.5 text-center"><span className={`badge ${t.creditworthiness === 'A' ? 'badge-green' : t.creditworthiness === 'B' ? 'badge-orange' : 'badge-red'}`}>{t.creditworthiness}</span></td>
+                    <td className="py-2.5"><GoogleReviewsPanel name={t.name} city={property.city} compact /></td>
                   </tr>
                 ))}
               </tbody>
