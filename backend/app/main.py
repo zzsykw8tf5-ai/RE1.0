@@ -15,6 +15,19 @@ from .api.areas import router as areas_router
 # Create database tables on startup
 Base.metadata.create_all(bind=engine)
 
+# Runtime migrations
+from sqlalchemy import text
+for _stmt in [
+    "ALTER TABLE properties ADD COLUMN photo_url VARCHAR",
+    "ALTER TABLE rental_areas ADD COLUMN beds INTEGER",
+]:
+    try:
+        with engine.connect() as _conn:
+            _conn.execute(text(_stmt))
+            _conn.commit()
+    except Exception:
+        pass  # Already exists
+
 app = FastAPI(
     title="RE Analyst Pro",
     description="Real Estate Analysis API – German & US Valuation, DCF, Location, Risk",

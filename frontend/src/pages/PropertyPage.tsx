@@ -208,7 +208,7 @@ export default function PropertyPage() {
             </div>
           ) : (
             <>
-              {activeTab === 'overview' && <OverviewTab property={property} analysis={analysis} />}
+              {activeTab === 'overview' && <OverviewTab property={property} analysis={analysis} onPropertyUpdate={(p) => setProperty(p)} />}
               {activeTab === 'german' && <GermanValuationTab data={analysis.german_valuation} property={property} />}
               {activeTab === 'us' && <USValuationTab data={analysis.us_valuation} property={property} />}
               {activeTab === 'dcf' && <DCFTab data={analysis.dcf} property={property} />}

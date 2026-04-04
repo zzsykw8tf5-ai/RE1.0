@@ -46,6 +46,7 @@ class Property(Base):
     purchase_date = Column(Date)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
+    photo_url = Column(String, nullable=True)
 
     tenants = relationship("Tenant", back_populates="property", cascade="all, delete-orphan")
     scenarios = relationship("Scenario", back_populates="property", cascade="all, delete-orphan")
@@ -102,8 +103,17 @@ GIF_NUTZUNGSARTEN = {
     "PRAXIS":       "Praxis-/Medizinfläche",
     "WOHNEN":       "Wohnfläche",
     "HOTEL":        "Hotelfläche",
+    # Gesundheit & Pflege
+    "PFLEGEHEIM":   "Pflegeheim",
+    "ALTENHEIM":    "Alten-/Seniorenheim",
+    "KRANKENHAUS":  "Krankenhaus / Klinik",
+    "AERZTEHAUS":   "Ärztehaus",
+    "MVZ":          "Medizinisches Versorgungszentrum (MVZ)",
     "SONSTIGES":    "Sonstige Fläche",
 }
+
+# Healthcare Nutzungsarten (needs beds field)
+HEALTHCARE_NUTZUNGSARTEN = {"PFLEGEHEIM", "ALTENHEIM", "KRANKENHAUS", "AERZTEHAUS", "MVZ"}
 
 ETAGEN = {
     "UG":  "Untergeschoss",
@@ -154,6 +164,9 @@ class RentalArea(Base):
 
     # Status
     status = Column(String(20), default="VERFUEGBAR") # key from AREA_STATUS
+
+    # Healthcare specific
+    beds = Column(Integer, nullable=True)  # Anzahl der Betten (Pflegeheim, Krankenhaus, etc.)
 
     notes = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

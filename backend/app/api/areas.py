@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models.property import (
     Property, RentalArea,
-    GIF_NUTZUNGSARTEN, ETAGEN, LAGE_QUALITAETEN, AREA_STATUS,
+    GIF_NUTZUNGSARTEN, ETAGEN, LAGE_QUALITAETEN, AREA_STATUS, HEALTHCARE_NUTZUNGSARTEN,
 )
 
 router = APIRouter(prefix="/api", tags=["areas"])
@@ -36,6 +36,12 @@ _NUTZUNGSART_TO_PROPTYPE = {
     "PRAXIS":       "OFFICE",
     "WOHNEN":       "RESIDENTIAL",
     "HOTEL":        "RETAIL",
+    # Gesundheit → OFFICE als Basis für Marktdaten
+    "PFLEGEHEIM":   "OFFICE",
+    "ALTENHEIM":    "OFFICE",
+    "KRANKENHAUS":  "OFFICE",
+    "AERZTEHAUS":   "OFFICE",
+    "MVZ":          "OFFICE",
     "SONSTIGES":    "MIXED",
 }
 
@@ -48,6 +54,12 @@ _NUTZUNGSART_FAKTOR = {
     "GASTRONOMIE": 0.90,   # Gastronomie unter Prime-Retail
     "PRAXIS":      1.15,   # Praxis/Medizin Premium über Standard-Büro
     "HOTEL":       0.70,   # Hotel: Mietäquivalent niedriger (andere Struktur)
+    # Gesundheitsimmobilien (Nettokaltmiete €/m²/Monat, Basis CBRE/JLL DE 2023)
+    "PFLEGEHEIM":  1.20,   # Pflegeheime: ~14-18 €/m² Pacht-Äquivalent
+    "ALTENHEIM":   1.10,   # Seniorenheime: ~13-17 €/m²
+    "KRANKENHAUS": 0.95,   # Krankenhäuser: oft Sonderpacht/ÖD-Verträge
+    "AERZTEHAUS":  1.25,   # Ärztehäuser: Premium über Standard-Büro
+    "MVZ":         1.30,   # MVZ: höchste Rendite, knappe Flächen
 }
 
 # Größenrabatt (Fläche in m²)
@@ -64,7 +76,10 @@ def _auto_name(nutzungsart: str, etage: str, lage_qualitaet: Optional[str], seq:
     short = {
         "BUERO": "Büro", "EINZELHANDEL": "EH", "LAGER": "Lager",
         "PRODUKTION": "Prod.", "GASTRONOMIE": "Gastro", "PRAXIS": "Praxis",
-        "WOHNEN": "Wohn.", "HOTEL": "Hotel", "SONSTIGES": "Fl.",
+        "WOHNEN": "Wohn.", "HOTEL": "Hotel",
+        "PFLEGEHEIM": "Pflege", "ALTENHEIM": "Alten", "KRANKENHAUS": "Klinik",
+        "AERZTEHAUS": "Arzt", "MVZ": "MVZ",
+        "SONSTIGES": "Fl.",
     }.get(nutzungsart, nutzungsart)
 
     etage_label = {
@@ -89,6 +104,7 @@ def _area_dict(a: RentalArea) -> dict:
         "name": a.name,
         "area_sqm": a.area_sqm,
         "market_rent_sqm": a.market_rent_sqm,
+        "beds": a.beds,
         "status": a.status,
         "status_label": AREA_STATUS.get(a.status or "VERFUEGBAR", a.status),
         "notes": a.notes,
@@ -112,6 +128,7 @@ class AreaCreate(BaseModel):
     name: Optional[str] = None           # if None → auto-generated
     area_sqm: Optional[float] = None
     market_rent_sqm: Optional[float] = None
+    beds: Optional[int] = None
     status: str = "VERFUEGBAR"
     notes: Optional[str] = None
 
@@ -123,6 +140,7 @@ class AreaUpdate(BaseModel):
     name: Optional[str] = None
     area_sqm: Optional[float] = None
     market_rent_sqm: Optional[float] = None
+    beds: Optional[int] = None
     status: Optional[str] = None
     notes: Optional[str] = None
 
@@ -300,6 +318,7 @@ def create_area(property_id: int, data: AreaCreate, db: Session = Depends(get_db
         name=name,
         area_sqm=data.area_sqm,
         market_rent_sqm=data.market_rent_sqm,
+        beds=data.beds,
         status=data.status,
         notes=data.notes,
     )
@@ -336,3 +355,141 @@ def delete_area(property_id: int, area_id: int, db: Session = Depends(get_db)):
     db.delete(area)
     db.commit()
     return {"ok": True}
+
+
+# ── Healthcare Research ────────────────────────────────────────────────────────
+
+_HEALTHCARE_DATA = {
+    "PFLEGEHEIM": {
+        "label": "Pflegeheim",
+        "yield_range": "5.0–6.5 %",
+        "rent_range": "14–20 €/m²/Monat",
+        "rent_per_bed_day": "80–140 €/Bett/Tag (Pflegesatz)",
+        "typical_lease": "20–25 Jahre (Doppel-Netto)",
+        "operators": ["Korian", "Alloheim", "Orpea/Emeis", "Caritas", "AWO", "Vitanas"],
+        "mdk_quality": {
+            "source": "MDS / MDK-Qualitätsprüfung",
+            "grades": ["Sehr gut", "Gut", "Befriedigend", "Ausreichend"],
+            "url": "https://www.mds-ev.de/themen/pflegequalitaet.html",
+            "note": "Jährliche MDK-Prüfung. Noten ab 2019 durch Pflegegradmatrix ersetzt (Outcome-Indikatoren).",
+            "indicators": [
+                "Dekubitusprophylaxe", "Sturz-/Schmerzmanagement",
+                "Medikamentengabe", "Pflege bei Demenz",
+                "Soziale Betreuung", "Hauswirtschaft",
+            ],
+        },
+        "regulation": "SGB XI (Pflegeversicherung), Heimrecht (länderspezifisch, z.B. WTG NRW), Pflegepersonaluntergrenzen-Verordnung (PpUGV)",
+        "risk_factors": [
+            "Fachkräftemangel erhöht Betriebskosten",
+            "Refinanzierungsrisiko bei Pflegekassensätzen",
+            "MDK-Prüfungsergebnisse beeinflussen Belegung",
+            "Energiekosten (hoher Verbrauch je Bett)",
+        ],
+        "market_trends": "Wachstumsmarkt durch Demografie; Leerstand <3 % in Ballungsräumen; Investitionsdruck durch ESG-Anforderungen",
+    },
+    "ALTENHEIM": {
+        "label": "Alten-/Seniorenheim",
+        "yield_range": "4.8–6.2 %",
+        "rent_range": "13–18 €/m²/Monat",
+        "rent_per_bed_day": "60–110 €/Bett/Tag",
+        "typical_lease": "15–20 Jahre",
+        "operators": ["Korian", "Alloheim", "Tertianum", "Augustinum", "Diakonie"],
+        "mdk_quality": {
+            "source": "MDS Qualitätsbericht",
+            "note": "Betrifft stationäre Altenpflege mit SGB XI-Zulassung; ohne Zulassung nur Heimrecht.",
+            "url": "https://www.mds-ev.de",
+        },
+        "regulation": "SGB XI (falls Pflegezulassung), Heimrecht/WTG, Bauordnungsrecht (Barrierefreiheit DIN 18040)",
+        "risk_factors": [
+            "Unterschied Senioren-Wohnen vs. vollstationär: unterschiedliche Zulassungspflichten",
+            "Mietwohnrecht vs. Pachtrecht je nach Betriebsmodell",
+        ],
+        "market_trends": "Betreutes Wohnen wächst schneller als Vollpflege; Hybridkonzepte gefragt",
+    },
+    "KRANKENHAUS": {
+        "label": "Krankenhaus / Klinik",
+        "yield_range": "4.5–5.8 %",
+        "rent_range": "10–18 €/m²/Monat (Bestandsmietäquivalent)",
+        "rent_per_bed_day": "300–900 €/Bett/Tag (DRG-Erlös, nicht Miete)",
+        "typical_lease": "Sondernutzung; oft kommunales Eigentum oder Erbpacht",
+        "operators": ["Helios", "Asklepios", "Sana", "Rhön", "Unikliniken (öffentlich)"],
+        "mdk_quality": {
+            "source": "G-BA Qualitätsbericht / IQTIG",
+            "note": "Krankenhäuser veröffentlichen alle 2 Jahre strukturierten Qualitätsbericht (§ 136b SGB V). Prüfung durch IQTIG (Institut für Qualitätssicherung und Transparenz).",
+            "url": "https://www.g-ba.de/themen/qualitaetssicherung/",
+            "indicators": [
+                "Fallzahlen je Indikation (Mindestmengen)",
+                "Komplikationsraten (QSKH)",
+                "Hygieneindikatoren",
+                "Patientenzufriedenheit (PEQ)",
+            ],
+        },
+        "regulation": "KHG (Krankenhausfinanzierungsgesetz), DRG-System (InEK), Krankenhausstrukturgesetz (KHSG 2016), Krankenhausreform 2024 (Vorhaltefinanzierung)",
+        "risk_factors": [
+            "Reform 2024: Leistungsgruppen ersetzen Fallpauschalen → Standortunsicherheit",
+            "Hoher Investitionsstau (Sanierungsbedarf >70 Mrd. €)",
+            "Energieintensiv (ca. 200–300 kWh/m²/a)",
+            "Öffentliche Träger dominieren → begrenzte Investoreninteressen",
+        ],
+        "market_trends": "Konsolidierung; Schließung von ~25 % der Krankenhäuser bis 2030 erwartet; Spezialkliniken attraktiver als Allgemeinhäuser",
+    },
+    "AERZTEHAUS": {
+        "label": "Ärztehaus",
+        "yield_range": "4.5–5.5 %",
+        "rent_range": "14–22 €/m²/Monat",
+        "typical_lease": "5–10 Jahre (Einzelarztpraxis), 10–15 Jahre (BAG/MVZ)",
+        "operators": ["Einzelarztpraxen", "Berufsausübungsgemeinschaften (BAG)", "MVZ-Betreiber"],
+        "mdk_quality": {
+            "source": "KBV Qualitätssicherung / Ärztekammern",
+            "note": "Niedergelassene Ärzte unterliegen Qualitätssicherung der KV (§ 135a SGB V). Einzelne Fachgruppen haben QM-Zertifizierungspflicht (z.B. QEP, EPA, KTQ).",
+            "url": "https://www.kbv.de/html/qualitaet.php",
+        },
+        "regulation": "Zulassung durch Kassenärztliche Vereinigung (KV), Ärztekammerrecht, MBO-Ä, Datenschutz (DSFA für Praxen), Barrierefreiheit",
+        "risk_factors": [
+            "Einzelarztpraxis: Mietausfall bei Aufgabe/Tod",
+            "KV-Zulassungsrecht beeinflusst Nachmietersuche",
+            "Umbaukosten bei Mieterwechsel (Praxen = individuell)",
+        ],
+        "market_trends": "Nachfrage steigt durch Ärztemangel → BAG und MVZ als Wachstumssegment; ESG-Anforderungen bei Neubauten",
+    },
+    "MVZ": {
+        "label": "Medizinisches Versorgungszentrum (MVZ)",
+        "yield_range": "4.2–5.2 %",
+        "rent_range": "16–25 €/m²/Monat",
+        "typical_lease": "10–15 Jahre (oft mit Verlängerungsoption)",
+        "operators": ["Primacare", "Heartbeat Medical", "MedKonzept", "KKH", "Helios MVZ", "Klinikträger-MVZ"],
+        "mdk_quality": {
+            "source": "KV-Qualitätssicherung / G-BA",
+            "note": "MVZ unterliegt denselben Qualitätssicherungsmaßnahmen wie Praxen (§ 135a SGB V) plus ggf. sektorenübergreifenden Qualitätssicherungsmaßnahmen des G-BA.",
+            "url": "https://www.g-ba.de",
+            "indicators": [
+                "Facharztstellen-Besetzung",
+                "Abrechnungskonformität (KV-Prüfung)",
+                "Hygieneplan",
+                "Notfallversorgung (sofern Zulassung)",
+            ],
+        },
+        "regulation": "§ 95 SGB V (MVZ-Gründungsrecht), GmbH-Recht (häufige Rechtsform), Zulassung durch Zulassungsausschuss der KV",
+        "risk_factors": [
+            "Trägerwechsel möglich → Mieterbonitäts-Due-Diligence essenziell",
+            "Investorengeführte MVZ unter regulatorischem Druck (§ 95 Abs. 1a SGB V)",
+            "Abhängigkeit von KV-Zulassung und Sitz-Übertragung",
+        ],
+        "market_trends": "Stärkstes Wachstum im Gesundheitsimmobilien-Segment; Private-Equity-Konsolidierung; Standorte nahe Krankenhäuser bevorzugt",
+    },
+}
+
+
+@router.get("/healthcare-research/{nutzungsart}")
+def get_healthcare_research(nutzungsart: str):
+    """Branchenspezifische Research-Daten für Gesundheitsimmobilien."""
+    data = _HEALTHCARE_DATA.get(nutzungsart.upper())
+    if not data:
+        raise HTTPException(404, f"Keine Daten für Nutzungsart '{nutzungsart}'")
+    return data
+
+
+@router.get("/healthcare-research")
+def list_healthcare_research():
+    """Alle verfügbaren Gesundheits-Nutzungsarten mit Research."""
+    return {k: {"label": v["label"], "yield_range": v["yield_range"]} for k, v in _HEALTHCARE_DATA.items()}

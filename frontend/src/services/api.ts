@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Property, FullAnalysis, GermanValuationResult, USValuationResult, DCFResult, LocationAnalysis, RiskResult, Scenario, RentalArea, GifTypes, AreaRentEstimate, OsmBuildingEstimate } from '../types';
+import type { Property, FullAnalysis, GermanValuationResult, USValuationResult, DCFResult, LocationAnalysis, RiskResult, Scenario, RentalArea, GifTypes, AreaRentEstimate, OsmBuildingEstimate, HealthcareResearch } from '../types';
 import { DEMO_PROPERTIES, DEMO_ANALYSIS } from '../data/demoData';
 
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -208,19 +208,39 @@ export const listAreas = (propertyId: number): Promise<RentalArea[]> =>
 export const createArea = (propertyId: number, data: {
   nutzungsart?: string; etage?: string; lage_qualitaet?: string | null;
   name?: string | null; area_sqm?: number | null; market_rent_sqm?: number | null;
-  status?: string; notes?: string | null;
+  beds?: number | null; status?: string; notes?: string | null;
 }): Promise<RentalArea> =>
   api.post(`/api/properties/${propertyId}/areas`, data).then(r => r.data);
 
 export const updateArea = (propertyId: number, areaId: number, data: Partial<{
   nutzungsart: string; etage: string; lage_qualitaet: string | null;
   name: string | null; area_sqm: number | null; market_rent_sqm: number | null;
-  status: string; notes: string | null;
+  beds: number | null; status: string; notes: string | null;
 }>): Promise<RentalArea> =>
   api.patch(`/api/properties/${propertyId}/areas/${areaId}`, data).then(r => r.data);
 
 export const deleteArea = (propertyId: number, areaId: number): Promise<void> =>
   api.delete(`/api/properties/${propertyId}/areas/${areaId}`).then(r => r.data);
+
+export const parseMapsUrl = (url: string): Promise<{ address: string; city: string; zip_code: string; raw: string; error?: string }> =>
+  api.get('/api/parse-maps-url', { params: { url } }).then(r => r.data);
+
+export const uploadPropertyPhoto = (propertyId: number, file: File): Promise<Property> => {
+  const form = new FormData();
+  form.append('file', file);
+  return api.post(`/api/properties/${propertyId}/photo`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then(r => r.data);
+};
+
+export const deletePropertyPhoto = (propertyId: number): Promise<void> =>
+  api.delete(`/api/properties/${propertyId}/photo`).then(r => r.data);
+
+export const geocodeAddress = (address: string): Promise<{ lat: number | null; lng: number | null }> =>
+  api.get('/api/geocode', { params: { address } }).then(r => r.data);
+
+export const getHealthcareResearch = (nutzungsart: string): Promise<HealthcareResearch> =>
+  api.get(`/api/healthcare-research/${nutzungsart}`).then(r => r.data);
 
 // ---- Demo mode: lightweight scenario simulation ----
 function _applyScenarioToDemoData(base: DCFResult, params: Record<string, number>): DCFResult {

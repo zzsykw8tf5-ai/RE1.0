@@ -8,6 +8,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import List
+from fastapi import File, UploadFile
+import shutil, uuid
 
 from ..database import get_db
 from ..models.property import Property, Tenant
@@ -399,5 +401,49 @@ def delete_tenant(property_id: int, tenant_id: int, db: Session = Depends(get_db
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
     db.delete(tenant)
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/properties/{property_id}/photo")
+async def upload_property_photo(
+    property_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """Upload a photo for a property. Returns updated property dict."""
+    prop = db.query(Property).filter_by(id=property_id).first()
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    # Validate file type
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Nur Bilddateien erlaubt")
+
+    # Save file
+    ext = file.filename.rsplit(".", 1)[-1].lower() if file.filename and "." in file.filename else "jpg"
+    filename = f"prop_{property_id}_{uuid.uuid4().hex[:8]}.{ext}"
+    save_path = f"uploads/{filename}"
+
+    import os
+    os.makedirs("uploads", exist_ok=True)
+    with open(save_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    prop.photo_url = f"/uploads/{filename}"
+    db.commit()
+    db.refresh(prop)
+    result = _property_dict(prop)
+    result["tenants"] = [_tenant_dict(t) for t in db.query(Tenant).filter_by(property_id=property_id).all()]
+    return result
+
+
+@router.delete("/properties/{property_id}/photo")
+def delete_property_photo(property_id: int, db: Session = Depends(get_db)):
+    """Remove property photo."""
+    prop = db.query(Property).filter_by(id=property_id).first()
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+    prop.photo_url = None
     db.commit()
     return {"ok": True}
