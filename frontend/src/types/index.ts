@@ -221,6 +221,59 @@ export interface RiskResult {
   tenant_concentration: { name: string; share_pct: number }[];
 }
 
+// ---- Rental Areas (gif MF/G 2017) ----
+export interface RentalArea {
+  id: number;
+  property_id: number;
+  nutzungsart: string;
+  nutzungsart_label: string;
+  etage: string;
+  etage_label: string;
+  lage_qualitaet: string | null;
+  lage_label: string;
+  name: string;
+  area_sqm: number | null;
+  market_rent_sqm: number | null;
+  status: string;
+  status_label: string;
+  notes: string | null;
+  created_at: string | null;
+}
+
+export interface GifTypes {
+  nutzungsarten: { key: string; label: string }[];
+  etagen: { key: string; label: string }[];
+  lage_qualitaeten: { key: string; label: string }[];
+  status_optionen: { key: string; label: string }[];
+}
+
+export interface AreaRentEstimate {
+  nutzungsart: string;
+  nutzungsart_label: string;
+  lage_qualitaet: string | null;
+  city: string;
+  area_sqm: number;
+  rent_min: number;
+  rent_avg: number;
+  rent_max: number;
+  source: string;
+}
+
+export interface OsmBuildingEstimate {
+  estimate: {
+    footprint_sqm: number;
+    floors: number;
+    estimated_gfa_sqm: number;
+    estimated_land_sqm: number;
+    building_type: string;
+    building_name: string;
+  } | null;
+  lat?: number;
+  lng?: number;
+  error?: string;
+  source?: string;
+}
+
 // ---- Full Analysis ----
 export interface FullAnalysis {
   property: Property;

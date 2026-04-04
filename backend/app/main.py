@@ -10,6 +10,7 @@ from .api.analysis import router as analysis_router
 from .api.reports import router as reports_router
 from .api.market import router as market_router
 from .api.news import router as news_router
+from .api.areas import router as areas_router
 
 # Create database tables on startup
 Base.metadata.create_all(bind=engine)
@@ -45,6 +46,7 @@ app.include_router(analysis_router)
 app.include_router(reports_router)
 app.include_router(market_router)
 app.include_router(news_router)
+app.include_router(areas_router)
 
 # Static files for uploads (lokal)
 os.makedirs("uploads", exist_ok=True)
