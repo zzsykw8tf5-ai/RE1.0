@@ -6,7 +6,7 @@ import {
   X, PenLine, ChevronRight, Info,
 } from 'lucide-react';
 import TopBar from '../components/Layout/TopBar';
-import { uploadExcel, uploadPDF, downloadTemplate, createProperty } from '../services/api';
+import { uploadExcel, uploadPDF, downloadTemplate, createProperty, parseMapsUrl } from '../services/api';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 
 type UploadState = 'idle' | 'uploading' | 'success' | 'error';
@@ -34,25 +34,6 @@ const TYPE_LABELS: Record<string, string> = {
   RETAIL: 'Einzelhandelsobjekt', INDUSTRIAL: 'Logistikimmobilie', MIXED: 'Mischnutzungsobjekt',
 };
 
-function parseGoogleMapsUrl(url: string): { address?: string; city?: string; zip_code?: string } {
-  try {
-    const decoded = decodeURIComponent(url).replace(/\+/g, ' ');
-    // Format: /maps/place/ADDRESS/@lat
-    const placeMatch = decoded.match(/\/maps\/place\/([^/@?]+)/);
-    const raw = placeMatch ? placeMatch[1].trim() : (() => {
-      const qMatch = decoded.match(/[?&]q=([^&]+)/);
-      return qMatch ? qMatch[1].trim() : null;
-    })();
-    if (!raw) return {};
-    const parts = raw.split(',').map((p: string) => p.trim()).filter(Boolean);
-    const zipCityMatch = parts[1]?.match(/^(\d{5})\s+(.+)$/);
-    return {
-      address: parts[0] || '',
-      zip_code: zipCityMatch?.[1] || '',
-      city: (zipCityMatch?.[2] || parts[1] || '').replace(/\s*Deutschland\s*$/i, '').trim(),
-    };
-  } catch { return {}; }
-}
 
 function buildAutoName(type: string, city: string, address: string): string {
   const parts = [TYPE_LABELS[type] || 'Objekt', city].filter(Boolean);
@@ -83,6 +64,8 @@ function ReviewForm({
   });
   const [nameManuallyEdited, setNameManuallyEdited] = useState(!!initial.name);
   const [mapsUrl, setMapsUrl] = useState('');
+  const [mapsLoading, setMapsLoading] = useState(false);
+  const [mapsError, setMapsError] = useState('');
 
   // Auto-update name when type/city/address change and user hasn't manually edited it
   const setField = (patch: Partial<FormData>) => {
@@ -124,24 +107,46 @@ function ReviewForm({
       {/* Google Maps URL */}
       <div>
         <label className={labelCls}>Google Maps URL <span className="text-apple-text-tertiary font-normal">(optional – Adresse automatisch ausfüllen)</span></label>
-        <input
-          type="url"
-          className={inputCls}
-          placeholder="https://www.google.com/maps/place/Musterstraße+1,+10115+Berlin/..."
-          value={mapsUrl}
-          onChange={e => {
-            setMapsUrl(e.target.value);
-            const parsed = parseGoogleMapsUrl(e.target.value);
-            if (parsed.address || parsed.city) {
-              setField({
-                ...(parsed.address ? { address: parsed.address } : {}),
-                ...(parsed.city ? { city: parsed.city } : {}),
-                ...(parsed.zip_code ? { zip_code: parsed.zip_code } : {}),
-              });
-            }
-          }}
-        />
-        <p className="text-[10px] text-apple-text-tertiary mt-0.5">Adresse, PLZ und Stadt werden automatisch ausgefüllt</p>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            className={inputCls}
+            placeholder="Google Maps Link einfügen (auch Kurzlinks maps.app.goo.gl)"
+            value={mapsUrl}
+            onChange={e => { setMapsUrl(e.target.value); setMapsError(''); }}
+          />
+          <button
+            type="button"
+            disabled={!mapsUrl.trim() || mapsLoading}
+            onClick={async () => {
+              setMapsLoading(true);
+              setMapsError('');
+              try {
+                const result = await parseMapsUrl(mapsUrl.trim());
+                if (result.error) { setMapsError(result.error); return; }
+                if (result.address || result.city) {
+                  setField({
+                    ...(result.address ? { address: result.address } : {}),
+                    ...(result.city ? { city: result.city } : {}),
+                    ...(result.zip_code ? { zip_code: result.zip_code } : {}),
+                  });
+                } else {
+                  setMapsError('Adresse nicht erkannt');
+                }
+              } catch {
+                setMapsError('Fehler beim Auflösen des Links');
+              } finally {
+                setMapsLoading(false);
+              }
+            }}
+            className="btn-secondary text-xs whitespace-nowrap flex items-center gap-1.5 disabled:opacity-50"
+          >
+            {mapsLoading ? <LoadingSpinner /> : null}
+            {mapsLoading ? 'Lädt…' : 'Ausfüllen'}
+          </button>
+        </div>
+        {mapsError && <p className="text-[10px] text-apple-red mt-0.5">{mapsError}</p>}
+        <p className="text-[10px] text-apple-text-tertiary mt-0.5">Funktioniert mit Standard- und Kurzlinks</p>
       </div>
 
       {/* Confidence banner */}

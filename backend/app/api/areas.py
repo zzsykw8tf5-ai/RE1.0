@@ -26,6 +26,9 @@ from ..models.property import (
 
 router = APIRouter(prefix="/api", tags=["areas"])
 
+import re as _re
+from urllib.parse import urlparse as _urlparse, parse_qs as _parse_qs
+
 # ── gif Nutzungsart → Property-Typ Mapping für Marktmietdaten ─────────────────
 _NUTZUNGSART_TO_PROPTYPE = {
     "BUERO":        "OFFICE",
@@ -128,6 +131,103 @@ class AreaUpdate(BaseModel):
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
+
+@router.get("/parse-maps-url")
+async def parse_maps_url(url: str):
+    """
+    Löst einen Google Maps Link auf und extrahiert Adresse, PLZ und Stadt.
+    Unterstützt Kurzlinks (maps.app.goo.gl) und Standard-URLs.
+    """
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept-Language": "de-DE,de;q=0.9",
+    }
+
+    resolved_url = url
+    # Kurzlinks auflösen (maps.app.goo.gl oder goo.gl)
+    if "goo.gl" in url or "maps.app.goo" in url:
+        try:
+            async with httpx.AsyncClient(headers=headers, timeout=8, follow_redirects=True) as client:
+                resp = await client.get(url)
+                resolved_url = str(resp.url)
+        except Exception:
+            return {"error": "Kurzlink konnte nicht aufgelöst werden", "address": "", "city": "", "zip_code": ""}
+
+    # Adresse aus URL extrahieren
+    address_raw = ""
+    parsed = _urlparse(resolved_url)
+
+    # Format 1: /maps/place/ADDRESS/@lat,lng
+    place_match = _re.search(r"/maps/place/([^/@?]+)", parsed.path)
+    if place_match:
+        from urllib.parse import unquote_plus
+        address_raw = unquote_plus(place_match.group(1))
+
+    # Format 2: ?q=ADDRESS
+    if not address_raw:
+        qs = _parse_qs(parsed.query)
+        q = qs.get("q", qs.get("query", []))[0] if (qs.get("q") or qs.get("query")) else ""
+        if q:
+            from urllib.parse import unquote_plus
+            address_raw = unquote_plus(q)
+
+    if not address_raw:
+        return {"error": "Adresse nicht gefunden im Link", "address": "", "city": "", "zip_code": ""}
+
+    # Bereinigen
+    address_raw = address_raw.strip().rstrip("/")
+    # "Deutschland" / "Germany" am Ende entfernen
+    address_raw = _re.sub(r",?\s*(Deutschland|Germany)\s*$", "", address_raw, flags=_re.IGNORECASE).strip()
+
+    # Teile aufsplitten: "Musterstraße 1, 10115 Berlin" oder "Musterstraße 1, Berlin"
+    parts = [p.strip() for p in address_raw.split(",") if p.strip()]
+    street = parts[0] if parts else ""
+    zip_city_part = parts[1] if len(parts) > 1 else ""
+
+    zip_code = ""
+    city = ""
+    zip_match = _re.match(r"^(\d{5})\s+(.+)$", zip_city_part)
+    if zip_match:
+        zip_code = zip_match.group(1)
+        city = zip_match.group(2).strip()
+    else:
+        city = zip_city_part
+
+    # Falls kein street (nur Ortsname), versuche Nominatim-Geocoding
+    if not _re.search(r"\d", street) and not city:
+        # Der ganze string ist wohl ein Ortsname → als city verwenden
+        city = street
+        street = ""
+
+    # Falls Straße eine Hausnummer hat aber keine PLZ → Nominatim für PLZ fragen
+    if street and not zip_code:
+        try:
+            query = address_raw
+            nom_headers = {"User-Agent": "REAnalystPro/1.0", "Accept": "application/json"}
+            async with httpx.AsyncClient(headers=nom_headers, timeout=6) as client:
+                resp = await client.get(
+                    "https://nominatim.openstreetmap.org/search",
+                    params={"q": query, "format": "json", "limit": 1, "countrycodes": "de", "addressdetails": 1}
+                )
+            data = resp.json()
+            if data:
+                addr = data[0].get("address", {})
+                zip_code = addr.get("postcode", "")
+                city = addr.get("city") or addr.get("town") or addr.get("village") or city
+                road = addr.get("road", "")
+                house = addr.get("house_number", "")
+                if road:
+                    street = f"{road} {house}".strip() if house else road
+        except Exception:
+            pass
+
+    return {
+        "address": street,
+        "city": city,
+        "zip_code": zip_code,
+        "raw": address_raw,
+    }
+
 
 @router.get("/gif-types")
 def gif_types():
