@@ -82,13 +82,16 @@ export default function Sidebar({ properties = [] }: SidebarProps) {
       </nav>
 
       {/* Bottom */}
-      <div className="p-3 border-t border-apple-gray-2">
+      <div className="p-3 border-t border-apple-gray-2 space-y-2">
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-blue-50 to-indigo-50">
           <TrendingUp size={14} className="text-apple-blue" />
           <div className="min-w-0">
             <div className="text-xs font-medium text-apple-text">Marktdaten</div>
             <div className="text-[10px] text-apple-text-tertiary">Live aktuell</div>
           </div>
+        </div>
+        <div className="px-3 py-1 text-[10px] text-apple-text-tertiary text-center select-none">
+          v0.4.5 · 04.04.2026
         </div>
       </div>
     </aside>
