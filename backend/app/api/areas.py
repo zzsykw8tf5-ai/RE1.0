@@ -298,38 +298,46 @@ async def osm_building_estimate(property_id: int, db: Session = Depends(get_db))
     if len(address) < 10:
         return {"error": "Keine Adresse hinterlegt", "estimate": None}
 
-    # 1. Geocode
+    # 1. Geocode – erst mit voller Adresse, dann nur PLZ+Stadt als Fallback
     nom_url = "https://nominatim.openstreetmap.org/search"
     headers = {"User-Agent": "REAnalystPro/1.0", "Accept": "application/json"}
     lat, lng = None, None
-    try:
-        async with httpx.AsyncClient(headers=headers, timeout=6) as client:
-            resp = await client.get(nom_url, params={"q": address, "format": "json", "limit": 1, "countrycodes": "de"})
-        data = resp.json()
-        if data:
-            lat, lng = float(data[0]["lat"]), float(data[0]["lon"])
-    except Exception:
-        pass
+    for query in [address, f"{prop.zip_code or ''} {prop.city or ''}".strip()]:
+        if not query or len(query) < 4:
+            continue
+        try:
+            async with httpx.AsyncClient(headers=headers, timeout=8) as client:
+                resp = await client.get(nom_url, params={"q": query, "format": "json", "limit": 3, "countrycodes": "de", "addressdetails": 1})
+            data = resp.json()
+            if data:
+                lat, lng = float(data[0]["lat"]), float(data[0]["lon"])
+                break
+        except Exception:
+            pass
 
     if lat is None:
         return {"error": "Adresse konnte nicht geocodiert werden", "estimate": None}
 
-    # 2. Overpass: Gebäude in 80m-Radius
-    overpass_q = f"""
-[out:json][timeout:12];
+    # 2. Overpass: Gebäude – erst 50m, dann 150m, dann 300m Radius
+    elements = []
+    for radius in (50, 150, 300):
+        overpass_q = f"""
+[out:json][timeout:15];
 (
-  way["building"](around:80,{lat},{lng});
-  relation["building:part"](around:80,{lat},{lng});
+  way["building"](around:{radius},{lat},{lng});
+  way["building:part"](around:{radius},{lat},{lng});
+  relation["building"](around:{radius},{lat},{lng});
 );
 out geom;
 """.strip()
-    elements = []
-    try:
-        async with httpx.AsyncClient(timeout=14) as client:
-            resp = await client.post("https://overpass-api.de/api/interpreter", data={"data": overpass_q})
-        elements = resp.json().get("elements", [])
-    except Exception:
-        pass
+        try:
+            async with httpx.AsyncClient(timeout=16) as client:
+                resp = await client.post("https://overpass-api.de/api/interpreter", data={"data": overpass_q})
+            elements = resp.json().get("elements", [])
+        except Exception:
+            pass
+        if elements:
+            break
 
     if not elements:
         return {"error": "Kein Gebäude in OpenStreetMap an dieser Adresse gefunden", "estimate": None, "lat": lat, "lng": lng}
