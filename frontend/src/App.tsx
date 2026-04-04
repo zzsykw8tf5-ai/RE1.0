@@ -5,6 +5,7 @@ import UploadPage from './pages/UploadPage';
 import PropertyPage from './pages/PropertyPage';
 import PortfolioPage from './pages/PortfolioPage';
 import OnboardingPage from './pages/OnboardingPage';
+import AreaPage from './pages/AreaPage';
 
 export default function App() {
   return (
@@ -16,6 +17,7 @@ export default function App() {
           <Route path="onboard/:id" element={<OnboardingPage />} />
           <Route path="property/:id" element={<PropertyPage />} />
           <Route path="portfolio" element={<PortfolioPage />} />
+          <Route path="areas/:id" element={<AreaPage />} />
         </Route>
       </Routes>
     </HashRouter>

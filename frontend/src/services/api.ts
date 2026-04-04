@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Property, FullAnalysis, GermanValuationResult, USValuationResult, DCFResult, LocationAnalysis, RiskResult, Scenario } from '../types';
+import type { Property, FullAnalysis, GermanValuationResult, USValuationResult, DCFResult, LocationAnalysis, RiskResult, Scenario, RentalArea, GifTypes, AreaRentEstimate, OsmBuildingEstimate } from '../types';
 import { DEMO_PROPERTIES, DEMO_ANALYSIS } from '../data/demoData';
 
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -189,6 +189,38 @@ export const suggestTenants = (address: string, city: string = ''): Promise<{ su
 export interface CompanySuggestion { name: string; domain: string; logo: string; is_company: boolean; source: string; }
 export const companySearch = (name: string): Promise<{ suggestions: CompanySuggestion[] }> =>
   api.get('/api/company-search', { params: { name } }).then(r => r.data);
+
+// ---- Rental Areas ----
+export const getGifTypes = (): Promise<GifTypes> =>
+  api.get('/api/gif-types').then(r => r.data);
+
+export const getAreaRent = (params: {
+  nutzungsart: string; city: string; area_sqm?: number; lage_qualitaet?: string;
+}): Promise<AreaRentEstimate> =>
+  api.get('/api/area-rent', { params }).then(r => r.data);
+
+export const getOsmEstimate = (propertyId: number): Promise<OsmBuildingEstimate> =>
+  api.get(`/api/properties/${propertyId}/areas/osm-estimate`).then(r => r.data);
+
+export const listAreas = (propertyId: number): Promise<RentalArea[]> =>
+  api.get(`/api/properties/${propertyId}/areas`).then(r => r.data);
+
+export const createArea = (propertyId: number, data: {
+  nutzungsart?: string; etage?: string; lage_qualitaet?: string | null;
+  name?: string | null; area_sqm?: number | null; market_rent_sqm?: number | null;
+  status?: string; notes?: string | null;
+}): Promise<RentalArea> =>
+  api.post(`/api/properties/${propertyId}/areas`, data).then(r => r.data);
+
+export const updateArea = (propertyId: number, areaId: number, data: Partial<{
+  nutzungsart: string; etage: string; lage_qualitaet: string | null;
+  name: string | null; area_sqm: number | null; market_rent_sqm: number | null;
+  status: string; notes: string | null;
+}>): Promise<RentalArea> =>
+  api.patch(`/api/properties/${propertyId}/areas/${areaId}`, data).then(r => r.data);
+
+export const deleteArea = (propertyId: number, areaId: number): Promise<void> =>
+  api.delete(`/api/properties/${propertyId}/areas/${areaId}`).then(r => r.data);
 
 // ---- Demo mode: lightweight scenario simulation ----
 function _applyScenarioToDemoData(base: DCFResult, params: Record<string, number>): DCFResult {

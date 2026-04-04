@@ -49,6 +49,7 @@ class Property(Base):
 
     tenants = relationship("Tenant", back_populates="property", cascade="all, delete-orphan")
     scenarios = relationship("Scenario", back_populates="property", cascade="all, delete-orphan")
+    areas = relationship("RentalArea", back_populates="property", cascade="all, delete-orphan")
 
 
 class Tenant(Base):
@@ -87,3 +88,74 @@ class Scenario(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     property = relationship("Property", back_populates="scenarios")
+
+
+# ── gif-konforme Flächenverwaltung ─────────────────────────────────────────────
+
+# gif MF/G 2017 Nutzungsarten + WoFlV Wohnfläche
+GIF_NUTZUNGSARTEN = {
+    "BUERO":        "Bürofläche",
+    "EINZELHANDEL": "Einzelhandelsfläche",
+    "LAGER":        "Lagerfläche",
+    "PRODUKTION":   "Produktionsfläche",
+    "GASTRONOMIE":  "Gastronomiefläche",
+    "PRAXIS":       "Praxis-/Medizinfläche",
+    "WOHNEN":       "Wohnfläche",
+    "HOTEL":        "Hotelfläche",
+    "SONSTIGES":    "Sonstige Fläche",
+}
+
+ETAGEN = {
+    "UG":  "Untergeschoss",
+    "EG":  "Erdgeschoss",
+    "OG1": "1. Obergeschoss",
+    "OG2": "2. Obergeschoss",
+    "OG3": "3. Obergeschoss",
+    "OG4": "4. Obergeschoss",
+    "OG5": "5. Obergeschoss",
+    "DG":  "Dachgeschoss",
+}
+
+LAGE_QUALITAETEN = {
+    "1A":    "1A-Lage",
+    "1B":    "1B-Lage",
+    "NEBEN": "Nebenlage",
+}
+
+AREA_STATUS = {
+    "VERFUEGBAR":   "Verfügbar",
+    "VERMIETET":    "Vermietet",
+    "EIGENGENUTZT": "Eigengenutzt",
+    "LEERSTAND":    "Leerstand",
+}
+
+
+class RentalArea(Base):
+    """
+    Einzelne Mietfläche (Flächeneinheit) innerhalb einer Immobilie.
+    Nutzungsart nach gif MF/G 2017 / WoFlV.
+    """
+    __tablename__ = "rental_areas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    property_id = Column(Integer, ForeignKey("properties.id"), nullable=False)
+
+    # gif-Klassifikation
+    nutzungsart = Column(String(50), nullable=False, default="BUERO")   # key from GIF_NUTZUNGSARTEN
+    etage = Column(String(10), default="EG")                             # key from ETAGEN
+    lage_qualitaet = Column(String(10))                                  # key from LAGE_QUALITAETEN (Einzelhandel)
+
+    # Flächenangaben
+    name = Column(String(255), nullable=False)        # auto-generated designation, editable
+    area_sqm = Column(Float)                          # Mietfläche in m²
+
+    # Marktmiete
+    market_rent_sqm = Column(Float)                   # €/m²/Monat (Richtwert)
+
+    # Status
+    status = Column(String(20), default="VERFUEGBAR") # key from AREA_STATUS
+
+    notes = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    property = relationship("Property", back_populates="areas")
