@@ -295,8 +295,9 @@ function TenantStep({
       if (row.area_id) {
         try { await updateArea(property.id, row.area_id, { status: 'VERMIETET' }); } catch { /* ignore */ }
       }
-    } catch {
-      updateRow(i, { saving: false, error: 'Speichern fehlgeschlagen' });
+    } catch (e: unknown) {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      updateRow(i, { saving: false, error: detail || 'Speichern fehlgeschlagen' });
     }
   };
 
@@ -324,8 +325,9 @@ function TenantStep({
       if (row.area_id) {
         try { await updateArea(property.id, row.area_id, { status: 'VERMIETET' }); } catch { /* ignore */ }
       }
-    } catch {
-      updateRow(i, { saving: false, error: 'Aktualisierung fehlgeschlagen' });
+    } catch (e: unknown) {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      updateRow(i, { saving: false, error: detail || 'Aktualisierung fehlgeschlagen' });
     }
   };
 
