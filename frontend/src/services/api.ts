@@ -181,7 +181,7 @@ export const getNews = (q: string): Promise<{ items: NewsItem[] }> =>
   api.get('/api/news', { params: { q } }).then(r => r.data);
 
 // ---- Tenant suggestions ----
-export interface TenantSuggestion { name: string; is_company: boolean; }
+export interface TenantSuggestion { name: string; is_company: boolean; type_label?: string; }
 export const suggestTenants = (address: string, city: string = ''): Promise<{ suggestions: TenantSuggestion[] }> =>
   api.get('/api/suggest-tenants', { params: { address, city } }).then(r => r.data);
 

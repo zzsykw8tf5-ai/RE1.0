@@ -1,4 +1,5 @@
 """News + tenant-suggestion API."""
+import asyncio
 import re
 import xml.etree.ElementTree as ET
 from urllib.parse import quote_plus
@@ -18,12 +19,30 @@ _HEADERS = {
     "Accept-Language": "de-DE,de;q=0.9",
 }
 
-# Words that appear in search results but are not company names
 _SKIP_PHRASES = {
     "immobilienscout", "immowelt", "immonet", "wikipedia", "google",
     "youtube", "linkedin", "xing", "facebook", "twitter", "kununu",
     "gelbe seiten", "stadtbranchenbuch", "yelp", "trivago", "booking",
     "instagram", "tiktok",
+}
+
+# OSM shop/amenity tags → human-readable label
+_OSM_SHOP_LABELS = {
+    "supermarket": "Supermarkt", "convenience": "Kiosk/Convenience",
+    "chemist": "Drogerie", "pharmacy": "Apotheke",
+    "clothes": "Bekleidung", "shoes": "Schuhe", "furniture": "Möbel",
+    "electronics": "Elektronik", "hardware": "Baumarkt",
+    "bakery": "Bäckerei", "butcher": "Metzgerei", "florist": "Blumen",
+    "hairdresser": "Friseur", "beauty": "Kosmetik",
+    "bank": "Bank", "insurance": "Versicherung",
+    "restaurant": "Restaurant", "cafe": "Café", "fast_food": "Fastfood",
+    "gym": "Fitness", "sports": "Sport",
+    "optician": "Optiker", "medical_supply": "Sanitätshaus",
+    "copyshop": "Copyshop", "travel_agency": "Reisebüro",
+    "mobile_phone": "Telekommunikation", "bicycle": "Fahrrad",
+    "pet": "Tierhandlung", "garden_centre": "Gartencenter",
+    "kiosk": "Kiosk", "alcohol": "Spirituosen",
+    "office": "Büro",
 }
 
 
@@ -75,6 +94,204 @@ async def geocode(q: str) -> dict:
     except Exception:
         pass
     return {}
+
+
+async def _geocode_address(address: str, city: str) -> tuple[float, float] | None:
+    """Return (lat, lng) for the address, or None if geocoding fails."""
+    query = f"{address}, {city}, Deutschland".strip(", ")
+    url = "https://nominatim.openstreetmap.org/search"
+    params = {"q": query, "format": "json", "limit": 1, "countrycodes": "de"}
+    headers = {**_HEADERS, "Accept": "application/json"}
+    try:
+        async with httpx.AsyncClient(headers=headers, timeout=6) as client:
+            resp = await client.get(url, params=params)
+        if resp.status_code == 200:
+            data = resp.json()
+            if data:
+                return float(data[0]["lat"]), float(data[0]["lon"])
+    except Exception:
+        pass
+    return None
+
+
+async def _overpass_tenants(lat: float, lng: float, radius: int = 150) -> list[dict]:
+    """
+    Query OpenStreetMap Overpass API for shops, offices, and businesses
+    within `radius` metres of the given coordinates.
+    Returns list of {name, type_label, is_company}.
+    """
+    # Query all nodes/ways/relations with a name tag within radius
+    overpass_query = f"""
+[out:json][timeout:12];
+(
+  node["name"](around:{radius},{lat},{lng});
+  node["shop"](around:{radius},{lat},{lng});
+  node["amenity"](around:{radius},{lat},{lng});
+  node["office"](around:{radius},{lat},{lng});
+  way["name"]["shop"](around:{radius},{lat},{lng});
+  way["name"]["amenity"](around:{radius},{lat},{lng});
+  way["name"]["office"](around:{radius},{lat},{lng});
+);
+out tags;
+""".strip()
+
+    url = "https://overpass-api.de/api/interpreter"
+    try:
+        async with httpx.AsyncClient(timeout=14) as client:
+            resp = await client.post(url, data={"data": overpass_query})
+        if resp.status_code != 200:
+            return []
+        data = resp.json()
+    except Exception:
+        return []
+
+    seen: set[str] = set()
+    results: list[dict] = []
+
+    for element in data.get("elements", []):
+        tags = element.get("tags", {})
+        name = (tags.get("brand") or tags.get("operator") or tags.get("name") or "").strip()
+        if not name or len(name) < 2 or name.lower() in seen:
+            continue
+        seen.add(name.lower())
+
+        shop = tags.get("shop", "")
+        amenity = tags.get("amenity", "")
+        office = tags.get("office", "")
+        kind = shop or amenity or office or "Gewerbe"
+        type_label = _OSM_SHOP_LABELS.get(kind, kind.replace("_", " ").capitalize())
+
+        results.append({
+            "name": name,
+            "type_label": type_label,
+            "is_company": True,
+        })
+
+    # Sort: shops first (most relevant for retail tenants), then offices/amenities
+    results.sort(key=lambda x: (0 if x["type_label"] in _OSM_SHOP_LABELS.values() else 1, x["name"]))
+    return results
+
+
+@router.get("/suggest-tenants")
+async def suggest_tenants(address: str, city: str = "") -> dict:
+    """
+    Find commercial tenants at the given address.
+    Primary: OpenStreetMap Overpass API (geocode → nearby shops/offices).
+    Fallback: DuckDuckGo company name extraction.
+    """
+    if not address or len(address.strip()) < 3:
+        return {"suggestions": []}
+
+    addr = address.strip()
+    city_part = city.strip()
+
+    # Step 1: geocode
+    coords = await _geocode_address(addr, city_part)
+
+    if coords:
+        lat, lng = coords
+        results = await _overpass_tenants(lat, lng, radius=150)
+        if results:
+            return {"suggestions": results[:12]}
+
+    # Fallback: DuckDuckGo search for company names at this address
+    ddg_url = f"https://html.duckduckgo.com/html/?q={quote_plus(f'{addr} {city_part} GmbH AG Unternehmen Gewerbe')}&kl=de-de"
+    suggestions: list[dict] = []
+    seen: set[str] = set()
+    company_re = re.compile(
+        r'([A-ZÄÖÜ][A-Za-zÄÖÜäöüß&\s\.\-]{1,50}'
+        r'(?:GmbH\s*&\s*Co\.\s*KG|GmbH\s*&\s*Co|GmbH|AG|KG|SE|UG|mbH|eG|Ltd|GbR|OHG))',
+        re.UNICODE,
+    )
+    try:
+        async with httpx.AsyncClient(headers=_HEADERS, timeout=9, follow_redirects=True) as client:
+            resp = await client.get(ddg_url)
+        raw = re.sub(r'<[^>]+>', ' ', resp.text)
+        for m in company_re.finditer(raw):
+            name = ' '.join(m.group(1).split()).strip('.,;: ')
+            nl = name.lower()
+            if nl in seen or len(name) < 5 or len(name) > 90:
+                continue
+            if any(skip in nl for skip in _SKIP_PHRASES):
+                continue
+            seen.add(nl)
+            suggestions.append({"name": name, "type_label": "Unternehmen", "is_company": True})
+    except Exception:
+        pass
+
+    return {"suggestions": suggestions[:8]}
+
+
+_COMPANY_SUFFIXES = re.compile(
+    r'([A-ZÄÖÜ][A-Za-zÄÖÜäöüß&\s\.\-]{1,50}'
+    r'(?:GmbH\s*&\s*Co\.\s*KG|GmbH\s*&\s*Co|GmbH|AG|KG|SE|UG|mbH|eG|Ltd|GbR|OHG|Inc\.?))',
+    re.UNICODE,
+)
+
+
+@router.get("/company-search")
+async def company_search(name: str) -> dict:
+    """
+    Search for a company by name.
+    Primary: Clearbit autocomplete (free, no API key) — returns name, domain, logo.
+    Fallback: DuckDuckGo HTML search.
+    """
+    if not name or len(name.strip()) < 2:
+        return {"suggestions": []}
+
+    suggestions: list[dict] = []
+
+    # 1. Clearbit autocomplete (no API key required)
+    try:
+        cb_url = f"https://autocomplete.clearbit.com/v1/companies/suggest?query={quote_plus(name)}"
+        async with httpx.AsyncClient(
+            headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
+            timeout=4,
+        ) as client:
+            resp = await client.get(cb_url)
+        if resp.status_code == 200:
+            for co in resp.json()[:7]:
+                co_name = co.get("name", "").strip()
+                domain = co.get("domain", "").strip()
+                if co_name:
+                    suggestions.append({
+                        "name": co_name,
+                        "domain": domain,
+                        "logo": f"https://logo.clearbit.com/{domain}" if domain else "",
+                        "is_company": True,
+                        "source": "clearbit",
+                    })
+    except Exception:
+        pass
+
+    # 2. DuckDuckGo fallback if Clearbit returned nothing
+    if not suggestions:
+        query = f"{name} GmbH AG Unternehmen Deutschland"
+        encoded = quote_plus(query)
+        ddg_url = f"https://html.duckduckgo.com/html/?q={encoded}&kl=de-de"
+        try:
+            async with httpx.AsyncClient(headers=_HEADERS, timeout=8, follow_redirects=True) as client:
+                resp = await client.get(ddg_url)
+            if resp.status_code == 200:
+                titles = re.findall(r'class="result__a"[^>]*>([^<]+)</a>', resp.text)
+                seen: set[str] = set()
+                for title in titles[:10]:
+                    title = re.sub(r'<[^>]+>', '', title).strip()
+                    if not title or title.lower() in seen or len(title) < 3 or len(title) > 80:
+                        continue
+                    if any(skip in title.lower() for skip in _SKIP_PHRASES):
+                        continue
+                    is_co = any(kw in title for kw in ['GmbH', 'AG', 'KG', 'SE', 'mbH', 'eG', 'Ltd'])
+                    seen.add(title.lower())
+                    suggestions.append({
+                        "name": title, "domain": "", "logo": "",
+                        "is_company": is_co, "source": "ddg",
+                    })
+        except Exception:
+            pass
+
+    suggestions.sort(key=lambda x: (0 if x["is_company"] else 1))
+    return {"suggestions": suggestions[:7]}
 
 
 _COMPANY_SUFFIXES = re.compile(

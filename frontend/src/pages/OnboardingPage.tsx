@@ -350,7 +350,8 @@ function TenantStep({
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full bg-white border border-apple-blue/30 text-apple-text hover:bg-blue-100 hover:border-apple-blue transition-colors shadow-sm"
                   >
                     <Building2 size={10} className="text-apple-blue flex-shrink-0" />
-                    {s.name}
+                    <span>{s.name}</span>
+                    {s.type_label && <span className="text-[10px] text-apple-text-tertiary">· {s.type_label}</span>}
                   </button>
                 ))}
               </div>
