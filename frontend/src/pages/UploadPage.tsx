@@ -122,7 +122,7 @@ function QuickForm({ onSave, onCancel }: {
               <CheckCircle2 size={14} className="text-apple-green mt-0.5 flex-shrink-0" />
               <div className="flex-1 space-y-2">
                 <p className="text-xs font-medium text-apple-green">Adresse erkannt</p>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   <div className="col-span-2">
                     <label className="block text-[10px] text-apple-text-secondary mb-0.5">Straße & Nr.</label>
                     <input className={inputCls} value={address} onChange={e => setAddress(e.target.value)} />
@@ -145,7 +145,7 @@ function QuickForm({ onSave, onCancel }: {
         {!address && !city && (
           <div className="mt-2">
             <p className="text-[10px] text-apple-text-tertiary mb-2">Oder Adresse manuell eingeben:</p>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               <div className="col-span-2">
                 <input className={inputCls} placeholder="Musterstraße 1" value={address} onChange={e => setAddress(e.target.value)} />
               </div>

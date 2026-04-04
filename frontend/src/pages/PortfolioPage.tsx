@@ -131,7 +131,7 @@ export default function PortfolioPage() {
         ) : (
           <div className="space-y-6 animate-fade-in">
             {/* KPI row */}
-            <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
               {[
                 { label: 'Objekte', value: properties.length },
                 { label: 'Gesamtfläche', value: formatSqm(totalArea) },
@@ -224,7 +224,7 @@ export default function PortfolioPage() {
             ) : (
               /* ── LIST VIEW ── */
               <>
-                <div className="grid grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
                   <div className="card">
                     <h3 className="font-semibold text-apple-text mb-4">Nutzungsarten (nach Wert)</h3>
                     {pieData.length > 0 ? (

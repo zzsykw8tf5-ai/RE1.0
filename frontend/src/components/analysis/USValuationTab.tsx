@@ -21,13 +21,13 @@ export default function USValuationTab({ data }: Props) {
         <div className="text-xs font-medium text-green-200 uppercase tracking-widest mb-1">Indicated Value (USPAP)</div>
         <div className="text-4xl font-bold mb-1">{formatUSD(combined.final_value_usd)}</div>
         <div className="text-green-200 text-sm">{formatEur(combined.final_value_eur)} · {formatPctDirect(combined.cap_rate)} % Cap Rate</div>
-        <div className="grid grid-cols-3 gap-4 mt-5 pt-5 border-t border-green-500/40">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4 mt-5 pt-5 border-t border-green-500/40">
           <div><div className="text-xl font-semibold">{formatUSD(ia.value)}</div><div className="text-xs text-green-200 mt-0.5">Income Approach ({formatPctDirect(combined.income_weight * 100, 0)} %)</div></div>
           <div><div className="text-xl font-semibold">{formatUSD(sc.indicated_value)}</div><div className="text-xs text-green-200 mt-0.5">Sales Comparison ({formatPctDirect(combined.sales_weight * 100, 0)} %)</div></div>
           <div><div className="text-xl font-semibold">{formatUSD(ca.total_value)}</div><div className="text-xs text-green-200 mt-0.5">Cost Approach ({formatPctDirect(combined.cost_weight * 100, 0)} %)</div></div>
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
         <div className="card">
           <h3 className="font-semibold text-apple-text mb-4 flex items-center gap-2"><TrendingUp size={15} className="text-apple-green" />Income Capitalization Approach</h3>
           <Row label="Gross Potential Income" value={formatUSD(ia.gross_rental_income)} />

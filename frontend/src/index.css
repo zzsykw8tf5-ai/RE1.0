@@ -118,3 +118,19 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #AEAEB2;
 }
+
+/* Hide scrollbar but keep scroll functionality */
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* Mobile touch improvements */
+@media (max-width: 768px) {
+  .card {
+    border-radius: 12px;
+  }
+}

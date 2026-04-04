@@ -53,7 +53,7 @@ export default function DCFTab({ data, property }: Props) {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Metrics Banner */}
-      <div className="grid grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-3">
         {[
           { label: 'IRR', value: formatIRR(metrics.irr), sub: '10-Jahres Rendite', color: 'from-blue-600 to-blue-700' },
           { label: 'NPV', value: formatEur(metrics.npv), sub: 'Kapitalwert', color: 'from-green-600 to-green-700' },
@@ -155,7 +155,7 @@ export default function DCFTab({ data, property }: Props) {
       </div>
 
       {/* Exit & Sensitivity */}
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
         <div className="card">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold text-apple-text">Exit-Planung</h3>

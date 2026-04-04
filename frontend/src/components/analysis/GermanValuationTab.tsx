@@ -61,7 +61,7 @@ export default function GermanValuationTab({ data, property }: Props) {
         </div>
         <div className="text-4xl font-bold mb-1">{formatEur(combined.final_value)}</div>
         <div className="text-blue-200 text-sm">{formatEur(combined.price_per_sqm)}/m² · {property.city}</div>
-        <div className="grid grid-cols-3 gap-4 mt-5 pt-5 border-t border-blue-500/40">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4 mt-5 pt-5 border-t border-blue-500/40">
           <div className={leit === 'ertrag' ? 'opacity-100' : 'opacity-70'}>
             <div className="text-xl font-semibold">{formatEur(ewv.ertragswert)}</div>
             <div className="text-xs text-blue-200 mt-0.5">Ertragswert ({formatPctDirect(combined.ertragswert_weight * 100, 0)} %)</div>
@@ -77,7 +77,7 @@ export default function GermanValuationTab({ data, property }: Props) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
         <SectionCard icon={TrendingUp} title="Ertragswertverfahren" color="text-apple-blue" primary={leit === 'ertrag'}>
           <Row label="Jahresrohertrag" value={formatEur(ewv.jahresrohertrag)} />
           <Row label="Bewirtschaftungskosten" value={`– ${formatEur(ewv.bewirtschaftungskosten)}`} indent />

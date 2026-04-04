@@ -49,7 +49,7 @@ export default function RiskTab({ data }: Props) {
           </div>
           <Shield size={48} className="opacity-20" />
         </div>
-        <div className="mt-4 pt-4 border-t border-white/20 grid grid-cols-3 gap-3">
+        <div className="mt-4 pt-4 border-t border-white/20 grid grid-cols-1 sm:grid-cols-3 gap-2 md:gap-3">
           {Object.entries(scores).slice(0, 3).map(([key, val]) => (
             <div key={key}>
               <div className="text-lg font-semibold">{val}</div>
@@ -59,7 +59,7 @@ export default function RiskTab({ data }: Props) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
         {/* Risk Scores */}
         <div className="card">
           <h3 className="font-semibold text-apple-text mb-5 flex items-center gap-2">
@@ -136,7 +136,7 @@ export default function RiskTab({ data }: Props) {
           <Zap size={15} className="text-apple-red" />
           Stress-Tests
         </h3>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
           {stressData.map(s => (
             <div key={s.name} className="bg-apple-gray rounded-lg p-4">
               <div className="text-sm font-medium text-apple-text mb-2">{s.name}</div>

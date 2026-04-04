@@ -71,15 +71,15 @@ export default function DashboardPage() {
           </div>
         ) : (
           <div className="space-y-8 animate-fade-in">
-            <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
               <StatCard label="Portfolio-Wert" value={formatEur(totalValue, 0)} icon={Euro} iconColor="text-apple-blue" />
               <StatCard label="Gesamtfläche" value={formatSqm(totalArea)} icon={Building2} iconColor="text-apple-green" />
               <StatCard label="Einheiten" value={totalUnits} icon={Users} iconColor="text-apple-orange" />
               <StatCard label="Ø €/m²" value={formatEur(avgPricePerSqm, 0)} icon={TrendingUp} iconColor="text-apple-purple" />
             </div>
 
-            <div className="grid grid-cols-3 gap-6">
-              <div className="col-span-2 card">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
+              <div className="md:col-span-2 card">
                 <div className="flex items-center justify-between mb-5">
                   <h2 className="font-semibold text-apple-text">Objekte</h2>
                   <button onClick={() => navigate('/portfolio')} className="btn-ghost text-xs flex items-center gap-1">

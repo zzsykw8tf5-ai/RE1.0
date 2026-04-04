@@ -42,7 +42,7 @@ export default function OverviewTab({ property, analysis, onPropertyUpdate }: Pr
     <div className="space-y-6 animate-fade-in">
 
       {/* Photo / Street View + KPIs */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4">
         {/* Photo area */}
         <div className="col-span-1 rounded-apple-lg overflow-hidden h-36 relative bg-apple-gray-2 group">
           {property.photo_url ? (
@@ -107,7 +107,7 @@ export default function OverviewTab({ property, analysis, onPropertyUpdate }: Pr
           </label>
         </div>
 
-        <div className="col-span-2 grid grid-cols-2 gap-4">
+        <div className="col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
           <KpiCard icon={Euro} iconColor="text-apple-blue" label={`${leitLabel} (DE)`} value={formatEur(de.combined.final_value)} sub={`${formatEur(de.combined.price_per_sqm)}/m²`} />
           <KpiCard icon={TrendingUp} iconColor="text-apple-green" label="IRR (10J.)" value={formatIRR(dcf.metrics.irr)} sub={`EM ${formatMultiple(dcf.metrics.equity_multiple)}`} />
           <KpiCard icon={Shield} iconColor={risk.overall_risk_score < 50 ? 'text-apple-green' : 'text-apple-orange'} label="Risiko-Score" value={risk.overall_risk_score.toFixed(0)} sub={risk.risk_category} badge={<span className={`badge text-xs ${getRiskBg(risk.overall_risk_score)}`}>{risk.risk_category}</span>} />
@@ -115,7 +115,7 @@ export default function OverviewTab({ property, analysis, onPropertyUpdate }: Pr
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
         <div className="card">
           <h3 className="font-semibold text-apple-text mb-1 flex items-center gap-2"><BarChart3 size={15} className="text-apple-blue" />Bewertung</h3>
           <p className="text-[10px] text-apple-text-tertiary mb-4">Leitverfahren: <span className="font-medium">{leitLabel}verfahren</span> · ImmoWertV 2021</p>
@@ -151,7 +151,7 @@ export default function OverviewTab({ property, analysis, onPropertyUpdate }: Pr
 
       <div className="card">
         <h3 className="font-semibold text-apple-text mb-4 flex items-center gap-2"><TrendingUp size={15} className="text-apple-green" />DCF Schnellübersicht (10 Jahre)</h3>
-        <div className="grid grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 md:gap-4">
           {[
             { label: 'IRR', value: formatIRR(dcf.metrics.irr), sub: 'Internal Rate of Return' },
             { label: 'NPV', value: formatEur(dcf.metrics.npv), sub: 'Kapitalwert' },

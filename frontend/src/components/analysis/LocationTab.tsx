@@ -124,7 +124,7 @@ export default function LocationTab({ data, property }: Props) {
       </div>
 
       {/* Macro + Micro */}
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
         <div className="card">
           <h3 className="font-semibold text-apple-text mb-4 flex items-center gap-2"><TrendingUp size={15} className="text-apple-blue" />Makroanalyse<span className={`badge ${tierColor} ml-auto`}>{macro.city_tier}</span></h3>
           <div className="space-y-3">
@@ -192,7 +192,7 @@ export default function LocationTab({ data, property }: Props) {
       </div>
 
       {/* Opportunities + Risk factors */}
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
         <div className="card">
           <h3 className="font-semibold text-apple-text mb-4 flex items-center gap-2"><CheckCircle2 size={15} className="text-apple-green" />Chancen</h3>
           <ul className="space-y-2">{opportunities.map((o, i) => <li key={i} className="flex items-start gap-2 text-sm text-apple-text-secondary"><span className="w-5 h-5 rounded-full bg-green-100 text-green-600 text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span>{o}</li>)}</ul>
@@ -206,7 +206,7 @@ export default function LocationTab({ data, property }: Props) {
       {/* News section */}
       <div>
         <h3 className="font-semibold text-apple-text mb-3 flex items-center gap-2"><Newspaper size={15} className="text-apple-blue" />Aktuelle News</h3>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4">
           <NewsBlock
             title="Immobilienmarkt"
             query={reNewsQuery}

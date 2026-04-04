@@ -119,7 +119,7 @@ export default function ScenarioTab({ property }: Props) {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="grid grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
         {/* Parameter Sliders */}
         <div className="col-span-2 card">
           <div className="flex items-center justify-between mb-5">
@@ -272,7 +272,7 @@ export default function ScenarioTab({ property }: Props) {
                   </div>
                   {isOpen && (
                     <div className="p-3 pt-0 border-t border-apple-gray-2 bg-apple-gray/30">
-                      <div className="grid grid-cols-4 gap-3 mt-3">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 mt-3">
                         {[
                           { l: 'IRR', v: formatIRR(r.metrics.irr) },
                           { l: 'NPV', v: formatEur(r.metrics.npv) },

@@ -131,21 +131,21 @@ export default function PropertyPage() {
         title={property.name}
         subtitle={`${property.address}, ${property.zip_code} ${property.city}`}
         actions={
-          <div className="flex items-center gap-2">
-            <button onClick={() => navigate(-1)} className="btn-secondary flex items-center gap-1.5 text-xs"><ChevronLeft size={13} /> Zurück</button>
-            <button onClick={openEdit} className="btn-secondary flex items-center gap-1.5 text-xs"><Pencil size={13} /> Bearbeiten</button>
-            <button onClick={() => navigate(`/onboard/${id}`)} className="btn-secondary flex items-center gap-1.5 text-xs"><UserPlus size={13} /> Mieter verwalten</button>
-            <button onClick={() => navigate(`/areas/${id}`)} className="btn-secondary flex items-center gap-1.5 text-xs"><Layers size={13} /> Flächen verwalten</button>
-            <button onClick={reRunAnalysis} disabled={analysisLoading} className="btn-secondary flex items-center gap-1.5 text-xs disabled:opacity-50">
-              <RefreshCw size={13} className={analysisLoading ? 'animate-spin' : ''} /> Neu berechnen
+          <div className="flex items-center gap-1.5 md:gap-2">
+            <button onClick={() => navigate(-1)} className="btn-secondary flex items-center gap-1 text-xs p-1.5 md:px-3"><ChevronLeft size={13} /><span className="hidden md:inline">Zurück</span></button>
+            <button onClick={openEdit} className="btn-secondary flex items-center gap-1 text-xs p-1.5 md:px-3"><Pencil size={13} /><span className="hidden md:inline">Bearbeiten</span></button>
+            <button onClick={() => navigate(`/areas/${id}`)} className="btn-secondary flex items-center gap-1 text-xs p-1.5 md:px-3"><Layers size={13} /><span className="hidden md:inline">Flächen</span></button>
+            <button onClick={() => navigate(`/onboard/${id}`)} className="btn-secondary flex items-center gap-1 text-xs p-1.5 md:px-3"><UserPlus size={13} /><span className="hidden md:inline">Mieter</span></button>
+            <button onClick={reRunAnalysis} disabled={analysisLoading} className="btn-secondary flex items-center gap-1 text-xs p-1.5 md:px-3 disabled:opacity-50">
+              <RefreshCw size={13} className={analysisLoading ? 'animate-spin' : ''} /><span className="hidden md:inline">Neu</span>
             </button>
-            <button onClick={() => downloadReport(Number(id))} className="btn-primary flex items-center gap-1.5 text-xs"><Download size={13} /> PDF Report</button>
-            <button onClick={handleDelete} className="text-apple-red hover:bg-red-50 p-2 rounded-lg transition-colors"><Trash2 size={14} /></button>
+            <button onClick={() => downloadReport(Number(id))} className="btn-primary flex items-center gap-1 text-xs p-1.5 md:px-3"><Download size={13} /><span className="hidden md:inline">PDF</span></button>
+            <button onClick={handleDelete} className="text-apple-red hover:bg-red-50 p-1.5 rounded-lg transition-colors"><Trash2 size={14} /></button>
           </div>
         }
       />
 
-      <div className="px-8 pt-6">
+      <div className="px-4 pt-4 md:px-8 md:pt-6">
         <div className="card mb-0 rounded-b-none border-b-0">
           <div className="flex items-start gap-6">
             {/* Mini Street View / Map thumbnail */}
@@ -171,7 +171,7 @@ export default function PropertyPage() {
                 <span className="badge badge-blue">{propertyTypeLabel(property.property_type)}</span>
                 <span className="badge badge-gray">Baujahr {property.construction_year}</span>
               </div>
-              <div className="flex flex-wrap gap-6 mt-3">
+              <div className="flex flex-wrap gap-3 md:gap-6 mt-3">
                 {[
                   { icon: MapPin, val: `${property.address}, ${property.city}` },
                   { icon: Ruler, val: formatSqm(property.total_area_sqm) },
@@ -186,9 +186,9 @@ export default function PropertyPage() {
               </div>
             </div>
           </div>
-          <div className="flex gap-1 mt-6 border-b border-apple-gray-2 -mb-6 pb-0">
+          <div className="flex gap-1 mt-6 border-b border-apple-gray-2 -mb-6 pb-0 overflow-x-auto scrollbar-none">
             {TABS.map(tab => (
-              <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-4 py-3 text-sm transition-all relative ${ activeTab === tab.id ? 'text-apple-blue font-medium' : 'text-apple-text-secondary hover:text-apple-text' }`}>
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-3 md:px-4 py-3 text-xs md:text-sm whitespace-nowrap transition-all relative flex-shrink-0 ${ activeTab === tab.id ? 'text-apple-blue font-medium' : 'text-apple-text-secondary hover:text-apple-text' }`}>
                 {tab.label}
                 {activeTab === tab.id && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-apple-blue rounded-full" />}
               </button>
@@ -197,7 +197,7 @@ export default function PropertyPage() {
         </div>
       </div>
 
-      <div className="px-8 pb-8">
+      <div className="px-4 pb-6 md:px-8 md:pb-8">
         <div className="bg-white rounded-b-apple rounded-t-none shadow-apple px-6 py-6">
           {analysisLoading ? (
             <FullPageLoader label="Analyse wird neu berechnet..." />

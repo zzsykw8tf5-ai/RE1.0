@@ -1,28 +1,42 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Upload, Building2, BarChart3,
-  ChevronRight, TrendingUp,
+  ChevronRight, TrendingUp, X,
 } from 'lucide-react';
 
 const nav = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/upload', icon: Upload, label: 'Objekt hochladen' },
+  { to: '/upload', icon: Upload, label: 'Objekt anlegen' },
   { to: '/portfolio', icon: BarChart3, label: 'Portfolio' },
 ];
 
 interface SidebarProps {
   properties?: { id: number; name: string; city: string }[];
+  mobileOpen?: boolean;
+  onClose?: () => void;
 }
 
-export default function Sidebar({ properties = [] }: SidebarProps) {
+export default function Sidebar({ properties = [], mobileOpen = false, onClose }: SidebarProps) {
   const navigate = useNavigate();
 
+  const handleNav = (to: string) => {
+    navigate(to);
+    onClose?.();
+  };
+
   return (
-    <aside className="w-60 bg-white border-r border-apple-gray-2 flex flex-col h-screen sticky top-0">
-      {/* Logo */}
-      <div className="px-5 pt-6 pb-4 border-b border-apple-gray-2">
+    <aside
+      className={`
+        fixed md:static inset-y-0 left-0 z-40
+        w-64 md:w-60 bg-white border-r border-apple-gray-2 flex flex-col h-screen
+        transform transition-transform duration-250 ease-in-out
+        ${mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+      `}
+    >
+      {/* Logo + close button */}
+      <div className="px-5 pt-6 pb-4 border-b border-apple-gray-2 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 bg-gradient-to-br from-apple-blue to-blue-600 rounded-lg flex items-center justify-center">
+          <div className="w-8 h-8 bg-gradient-to-br from-apple-blue to-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
             <Building2 size={16} className="text-white" />
           </div>
           <div>
@@ -30,6 +44,13 @@ export default function Sidebar({ properties = [] }: SidebarProps) {
             <div className="text-[10px] text-apple-text-tertiary uppercase tracking-widest">Pro</div>
           </div>
         </div>
+        {/* Close button – mobile only */}
+        <button
+          onClick={onClose}
+          className="md:hidden p-1.5 hover:bg-apple-gray rounded-lg text-apple-text-secondary"
+        >
+          <X size={16} />
+        </button>
       </div>
 
       {/* Main Nav */}
@@ -40,8 +61,9 @@ export default function Sidebar({ properties = [] }: SidebarProps) {
               key={to}
               to={to}
               end={to === '/'}
+              onClick={onClose}
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 ${
+                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 ${
                   isActive
                     ? 'bg-apple-blue text-white'
                     : 'text-apple-text-secondary hover:bg-apple-gray hover:text-apple-text'
@@ -66,7 +88,7 @@ export default function Sidebar({ properties = [] }: SidebarProps) {
               {properties.map(p => (
                 <button
                   key={p.id}
-                  onClick={() => navigate(`/property/${p.id}`)}
+                  onClick={() => handleNav(`/property/${p.id}`)}
                   className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm text-apple-text-secondary hover:bg-apple-gray hover:text-apple-text transition-all group"
                 >
                   <div className="flex items-center gap-2 min-w-0">
