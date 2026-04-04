@@ -443,44 +443,13 @@ def combined_valuation(params: dict) -> dict:
     # Industrie/Sonstige → Sachwert dominant
     property_type = params.get("property_type", "OFFICE")
 
+    # ImmoWertV 2021: kein Methodenmix – nur das Leitverfahren
+    # Gewerbe (Büro, EH, Industrie, Gemischt) → Ertragswertverfahren
+    # Wohnen → Vergleichswertverfahren
     if property_type == "RESIDENTIAL":
-        # Vergleichswertverfahren ist Leitverfahren für Wohnimmobilien
-        default_weights = {
-            "ertragswert": 0.25,
-            "vergleichswert": 0.65,
-            "sachwert": 0.10,
-        }
-    elif property_type in ("INDUSTRIAL",):
-        # Sachwertverfahren ist Leitverfahren für Industrie / Sonderimmobilien
-        default_weights = {
-            "ertragswert": 0.30,
-            "vergleichswert": 0.15,
-            "sachwert": 0.55,
-        }
-    elif property_type in ("OFFICE", "RETAIL", "MIXED"):
-        # Ertragswertverfahren ist Leitverfahren für Gewerbeimmobilien
-        default_weights = {
-            "ertragswert": 0.70,
-            "vergleichswert": 0.20,
-            "sachwert": 0.10,
-        }
+        leitverfahren = "vergleichswert"
     else:
-        default_weights = {
-            "ertragswert": 0.60,
-            "vergleichswert": 0.25,
-            "sachwert": 0.15,
-        }
-
-    w_ertrag = float(params.get("gewichtung_ertragswert", default_weights["ertragswert"]))
-    w_vergleich = float(params.get("gewichtung_vergleichswert", default_weights["vergleichswert"]))
-    w_sach = float(params.get("gewichtung_sachwert", default_weights["sachwert"]))
-
-    # Normalize weights
-    w_total = w_ertrag + w_vergleich + w_sach
-    if w_total > 0:
-        w_ertrag /= w_total
-        w_vergleich /= w_total
-        w_sach /= w_total
+        leitverfahren = "ertragswert"
 
     # Run individual methods
     ertrag_result = ertragswertverfahren(params)
@@ -491,28 +460,20 @@ def combined_valuation(params: dict) -> dict:
     vergleichswert = vergleich_result.get("vergleichswert", 0)
     sachwert = sach_result.get("sachwert", 0)
 
-    # Weighted combination
-    # If comparison value is 0 (no comparables provided), redistribute weight
-    if vergleichswert == 0:
-        w_gesamt_ohne_vergleich = w_ertrag + w_sach
-        if w_gesamt_ohne_vergleich > 0:
-            w_ertrag_adj = w_ertrag / w_gesamt_ohne_vergleich
-            w_sach_adj = w_sach / w_gesamt_ohne_vergleich
-        else:
-            w_ertrag_adj = 1.0
-            w_sach_adj = 0.0
-        verkehrswert = ertragswert * w_ertrag_adj + sachwert * w_sach_adj
+    # Verkehrswert = 100 % Leitverfahren, kein Mischen
+    if leitverfahren == "vergleichswert":
+        verkehrswert = vergleichswert if vergleichswert > 0 else ertragswert
         effective_weights = {
-            "ertragswert": round(w_ertrag_adj, 3),
-            "vergleichswert": 0.0,
-            "sachwert": round(w_sach_adj, 3),
+            "ertragswert": 0.0,
+            "vergleichswert": 1.0 if vergleichswert > 0 else 0.0,
+            "sachwert": 0.0,
         }
     else:
-        verkehrswert = ertragswert * w_ertrag + vergleichswert * w_vergleich + sachwert * w_sach
+        verkehrswert = ertragswert
         effective_weights = {
-            "ertragswert": round(w_ertrag, 3),
-            "vergleichswert": round(w_vergleich, 3),
-            "sachwert": round(w_sach, 3),
+            "ertragswert": 1.0,
+            "vergleichswert": 0.0,
+            "sachwert": 0.0,
         }
 
     # Plausibility check
@@ -526,8 +487,11 @@ def combined_valuation(params: dict) -> dict:
         spannweite_pct = 0
         plausibilitaet = "keine Daten"
 
+    leitverfahren_label = "Vergleichswertverfahren" if leitverfahren == "vergleichswert" else "Ertragswertverfahren"
+
     return {
-        "methode": "Kombinierte Bewertung (ImmoWertV 2021)",
+        "methode": f"{leitverfahren_label} (ImmoWertV 2021 – Leitverfahren)",
+        "leitverfahren": leitverfahren,
         "einzelbewertungen": {
             "ertragswertverfahren": ertrag_result,
             "vergleichswertverfahren": vergleich_result,

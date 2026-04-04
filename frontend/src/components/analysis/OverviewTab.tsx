@@ -16,28 +16,64 @@ export default function OverviewTab({ property, analysis }: Props) {
     { subject: 'Finanzen', value: 100 - risk.scores.financial_risk },
     { subject: 'Regulatorik', value: 100 - risk.scores.regulatory_risk },
   ];
+
+  const isResidential = property.property_type === 'RESIDENTIAL';
+  const leitValue = isResidential ? de.vergleichswertverfahren.vergleichswert : de.ertragswertverfahren.ertragswert;
+  const leitLabel = isResidential ? 'Vergleichswert' : 'Ertragswert';
+
+  const addressQ = [property.address, property.zip_code, property.city].filter(Boolean).join(', ');
+  const streetViewSrc = addressQ
+    ? `https://www.google.com/maps?q=${encodeURIComponent(addressQ)}&layer=c&output=embed`
+    : null;
+
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="grid grid-cols-4 gap-4">
-        <KpiCard icon={Euro} iconColor="text-apple-blue" label="Verkehrswert (DE)" value={formatEur(de.combined.final_value)} sub={`${formatEur(de.combined.price_per_sqm)}/m²`} />
-        <KpiCard icon={TrendingUp} iconColor="text-apple-green" label="IRR (10J.)" value={formatIRR(dcf.metrics.irr)} sub={`Equity-Multiple ${formatMultiple(dcf.metrics.equity_multiple)}`} />
-        <KpiCard icon={Shield} iconColor={risk.overall_risk_score < 50 ? 'text-apple-green' : 'text-apple-orange'} label="Risiko-Score" value={risk.overall_risk_score.toFixed(0)} sub={risk.risk_category} badge={<span className={`badge text-xs ${getRiskBg(risk.overall_risk_score)}`}>{risk.risk_category}</span>} />
-        <KpiCard icon={MapPin} iconColor="text-apple-purple" label="Standort-Score" value={location.overall_score.toFixed(0)} sub={location.macro.city_tier} />
+
+      {/* Street View + KPIs */}
+      <div className="grid grid-cols-3 gap-4">
+        {/* Street View photo */}
+        {streetViewSrc && (
+          <div className="col-span-1 rounded-apple-lg overflow-hidden h-36 relative bg-apple-gray-2">
+            <iframe
+              title="Street View"
+              src={streetViewSrc}
+              width="100%"
+              height="100%"
+              style={{ border: 0, pointerEvents: 'none' }}
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+            />
+            <div className="absolute bottom-1.5 left-2 text-[9px] text-white/80 bg-black/40 px-1.5 py-0.5 rounded">
+              {property.address}
+            </div>
+          </div>
+        )}
+        <div className={`${streetViewSrc ? 'col-span-2' : 'col-span-3'} grid grid-cols-2 gap-4`}>
+          <KpiCard icon={Euro} iconColor="text-apple-blue" label={`${leitLabel} (DE)`} value={formatEur(de.combined.final_value)} sub={`${formatEur(de.combined.price_per_sqm)}/m²`} />
+          <KpiCard icon={TrendingUp} iconColor="text-apple-green" label="IRR (10J.)" value={formatIRR(dcf.metrics.irr)} sub={`EM ${formatMultiple(dcf.metrics.equity_multiple)}`} />
+          <KpiCard icon={Shield} iconColor={risk.overall_risk_score < 50 ? 'text-apple-green' : 'text-apple-orange'} label="Risiko-Score" value={risk.overall_risk_score.toFixed(0)} sub={risk.risk_category} badge={<span className={`badge text-xs ${getRiskBg(risk.overall_risk_score)}`}>{risk.risk_category}</span>} />
+          <KpiCard icon={MapPin} iconColor="text-apple-purple" label="Standort-Score" value={location.overall_score.toFixed(0)} sub={location.macro.city_tier} />
+        </div>
       </div>
+
       <div className="grid grid-cols-2 gap-6">
         <div className="card">
-          <h3 className="font-semibold text-apple-text mb-4 flex items-center gap-2"><BarChart3 size={15} className="text-apple-blue" />Bewertungsübersicht</h3>
+          <h3 className="font-semibold text-apple-text mb-1 flex items-center gap-2"><BarChart3 size={15} className="text-apple-blue" />Bewertung</h3>
+          <p className="text-[10px] text-apple-text-tertiary mb-4">Leitverfahren: <span className="font-medium">{leitLabel}verfahren</span> · ImmoWertV 2021</p>
           <div className="space-y-3">
             {[
-              { label: 'Ertragswert (DE)', value: de.ertragswertverfahren.ertragswert, pct: 100 },
-              { label: 'Vergleichswert (DE)', value: de.vergleichswertverfahren.vergleichswert, pct: (de.vergleichswertverfahren.vergleichswert / de.ertragswertverfahren.ertragswert) * 100 },
-              { label: 'Sachwert (DE)', value: de.sachwertverfahren.sachwert, pct: (de.sachwertverfahren.sachwert / de.ertragswertverfahren.ertragswert) * 100 },
-              { label: 'Income Approach (US)', value: us.income_approach.value, pct: (us.income_approach.value / de.ertragswertverfahren.ertragswert) * 100 },
-              { label: 'Kaufpreis', value: property.purchase_price, pct: (property.purchase_price / de.ertragswertverfahren.ertragswert) * 100 },
-            ].map(row => (
+              { label: `${leitLabel} (Leitverfahren)`, value: leitValue, pct: 100, highlight: true },
+              { label: 'Income Approach (US)', value: us.income_approach.value, pct: (us.income_approach.value / (leitValue || 1)) * 100, highlight: false },
+              { label: 'Kaufpreis', value: property.purchase_price, pct: (property.purchase_price / (leitValue || 1)) * 100, highlight: false },
+            ].filter(r => r.value > 0).map(row => (
               <div key={row.label}>
-                <div className="flex justify-between items-center text-sm mb-1"><span className="text-apple-text-secondary">{row.label}</span><span className="font-medium text-apple-text">{formatEur(row.value)}</span></div>
-                <div className="h-1.5 bg-apple-gray-2 rounded-full"><div className="h-full rounded-full bg-apple-blue transition-all duration-700" style={{ width: `${Math.min(100, Math.max(0, row.pct))}%` }} /></div>
+                <div className="flex justify-between items-center text-sm mb-1">
+                  <span className={row.highlight ? 'font-medium text-apple-text' : 'text-apple-text-secondary'}>{row.label}</span>
+                  <span className={row.highlight ? 'font-semibold text-apple-blue' : 'font-medium text-apple-text'}>{formatEur(row.value)}</span>
+                </div>
+                <div className="h-1.5 bg-apple-gray-2 rounded-full">
+                  <div className={`h-full rounded-full transition-all duration-700 ${row.highlight ? 'bg-apple-blue' : 'bg-apple-gray-4'}`} style={{ width: `${Math.min(100, Math.max(0, row.pct))}%` }} />
+                </div>
               </div>
             ))}
           </div>
