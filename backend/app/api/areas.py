@@ -318,26 +318,19 @@ async def osm_building_estimate(property_id: int, db: Session = Depends(get_db))
     if lat is None:
         return {"error": "Adresse konnte nicht geocodiert werden", "estimate": None}
 
-    # 2. Overpass: Gebäude – erst 50m, dann 150m, dann 300m Radius
-    elements = []
-    for radius in (50, 150, 300):
-        overpass_q = f"""
-[out:json][timeout:15];
-(
-  way["building"](around:{radius},{lat},{lng});
-  way["building:part"](around:{radius},{lat},{lng});
-  relation["building"](around:{radius},{lat},{lng});
-);
+    # 2. Overpass: Gebäude in 300m-Radius (single call, nur ways mit geometry)
+    overpass_q = f"""
+[out:json][timeout:20];
+way["building"](around:300,{lat},{lng});
 out geom;
 """.strip()
-        try:
-            async with httpx.AsyncClient(timeout=16) as client:
-                resp = await client.post("https://overpass-api.de/api/interpreter", data={"data": overpass_q})
-            elements = resp.json().get("elements", [])
-        except Exception:
-            pass
-        if elements:
-            break
+    elements = []
+    try:
+        async with httpx.AsyncClient(timeout=22) as client:
+            resp = await client.post("https://overpass-api.de/api/interpreter", data={"data": overpass_q})
+        elements = resp.json().get("elements", [])
+    except Exception:
+        pass
 
     if not elements:
         return {"error": "Kein Gebäude in OpenStreetMap an dieser Adresse gefunden", "estimate": None, "lat": lat, "lng": lng}
@@ -354,14 +347,23 @@ out geom;
         s = sum(pts[i][0] * pts[(i+1) % n][1] - pts[(i+1) % n][0] * pts[i][1] for i in range(n))
         return abs(s) / 2
 
-    best_footprint, best_tags = 0.0, {}
+    def _centroid(coords: list) -> tuple:
+        lats = [c["lat"] for c in coords]
+        lons = [c["lon"] for c in coords]
+        return sum(lats) / len(lats), sum(lons) / len(lons)
+
+    # Nächstes Gebäude zum Geocode-Punkt wählen (nicht das größte)
+    best_footprint, best_tags, best_dist = 0.0, {}, float("inf")
     for el in elements:
         geom = el.get("geometry", [])
-        if geom:
-            a = _area_sqm(geom)
-            if a > best_footprint:
-                best_footprint = a
-                best_tags = el.get("tags", {})
+        if not geom:
+            continue
+        clat, clng = _centroid(geom)
+        dist = math.hypot((clat - lat) * 111320, (clng - lng) * 111320 * math.cos(math.radians(lat)))
+        if dist < best_dist:
+            best_dist = dist
+            best_footprint = _area_sqm(geom)
+            best_tags = el.get("tags", {})
 
     floors = int(best_tags.get("building:levels", prop.floors or 3))
     gfa = best_footprint * floors
