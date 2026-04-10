@@ -117,8 +117,6 @@ export default function FinanzierungTab({ property, analysis }: Props) {
     };
   }, [property.purchase_price, ltv, interest, amortRate, nebenkosten, horizon, analysis]);
 
-  const dscrColor = calc.dscr == null ? '' : calc.dscr >= 1.3 ? 'text-apple-green' : calc.dscr >= 1.0 ? 'text-apple-orange' : 'text-apple-red';
-
   return (
     <div className="space-y-6 animate-fade-in">
 
