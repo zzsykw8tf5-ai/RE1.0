@@ -483,7 +483,10 @@ function TenantStep({
                       }}
                     >
                       <option value="">– Keine Fläche –</option>
-                      {areas.filter(a => a.status === 'VERFUEGBAR' || a.id === row.area_id).map(a => (
+                      {areas.filter(a =>
+                        (a.status === 'VERFUEGBAR' && !rows.some((r, ri) => ri !== i && r.saved && r.area_id === a.id))
+                        || a.id === row.area_id
+                      ).map(a => (
                         <option key={a.id} value={a.id}>
                           {a.name} ({a.area_sqm ?? '?'} m² · {a.nutzungsart_label})
                         </option>

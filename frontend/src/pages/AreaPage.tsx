@@ -135,7 +135,8 @@ export default function AreaPage() {
   }, [propertyId]);
 
   // Fetch rent hint whenever nutzungsart / area_sqm / lage_qualitaet change (with city)
-  const fetchRentHint = useCallback(async (f: AreaForm, city: string) => {
+  // For new areas (editingArea === null): auto-fill the field if it is currently empty.
+  const fetchRentHint = useCallback(async (f: AreaForm, city: string, isNew: boolean) => {
     if (!f.nutzungsart || !city) return;
     setRentLoading(true);
     try {
@@ -147,16 +148,22 @@ export default function AreaPage() {
       if (f.nutzungsart === 'EINZELHANDEL' && f.lage_qualitaet) {
         params.lage_qualitaet = f.lage_qualitaet;
       }
-      setRentHint(await getAreaRent(params));
+      const hint = await getAreaRent(params);
+      setRentHint(hint);
+      if (isNew) {
+        // Auto-fill only when the user hasn't entered a value yet
+        setForm(prev => prev.market_rent_sqm ? prev : { ...prev, market_rent_sqm: String(hint.rent_avg) });
+      }
     } catch { /* ignore */ }
     finally { setRentLoading(false); }
   }, []);
 
   useEffect(() => {
     if (!formOpen || !property?.city) return;
-    const t = setTimeout(() => fetchRentHint(form, property.city), 400);
+    const isNew = editingArea === null;
+    const t = setTimeout(() => fetchRentHint(form, property.city, isNew), 400);
     return () => clearTimeout(t);
-  }, [form.nutzungsart, form.area_sqm, form.lage_qualitaet, formOpen, property, fetchRentHint]);
+  }, [form.nutzungsart, form.area_sqm, form.lage_qualitaet, formOpen, property, fetchRentHint, editingArea]);
 
   // Load healthcare research when nutzungsart changes in form
   useEffect(() => {

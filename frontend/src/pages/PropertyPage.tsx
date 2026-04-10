@@ -13,14 +13,16 @@ import LocationTab from '../components/analysis/LocationTab';
 import RiskTab from '../components/analysis/RiskTab';
 import ScenarioTab from '../components/analysis/ScenarioTab';
 import OverviewTab from '../components/analysis/OverviewTab';
+import FinanzierungTab from '../components/analysis/FinanzierungTab';
 
-type Tab = 'overview' | 'german' | 'us' | 'dcf' | 'location' | 'risk' | 'scenarios';
+type Tab = 'overview' | 'german' | 'us' | 'dcf' | 'finanzierung' | 'location' | 'risk' | 'scenarios';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'overview', label: 'Übersicht' },
   { id: 'german', label: 'Bewertung DE' },
   { id: 'us', label: 'Bewertung US' },
   { id: 'dcf', label: 'DCF Modell' },
+  { id: 'finanzierung', label: 'Finanzierung' },
   { id: 'location', label: 'Standort' },
   { id: 'risk', label: 'Risiko' },
   { id: 'scenarios', label: 'Szenarien' },
@@ -175,7 +177,7 @@ export default function PropertyPage() {
                 {[
                   { icon: MapPin, val: `${property.address}, ${property.city}` },
                   { icon: Ruler, val: formatSqm(property.total_area_sqm) },
-                  { icon: Users, val: `${property.units} Einheiten` },
+                  { icon: Users, val: `${property.units != null ? property.units : '–'} Einheiten` },
                   { icon: Calendar, val: property.purchase_date ? new Date(property.purchase_date).toLocaleDateString('de-DE') : '–' },
                   { icon: Euro, val: formatEur(property.purchase_price) },
                 ].map(({ icon: Icon, val }) => (
@@ -212,6 +214,7 @@ export default function PropertyPage() {
               {activeTab === 'german' && <GermanValuationTab data={analysis.german_valuation} property={property} />}
               {activeTab === 'us' && <USValuationTab data={analysis.us_valuation} property={property} />}
               {activeTab === 'dcf' && <DCFTab data={analysis.dcf} property={property} />}
+              {activeTab === 'finanzierung' && <FinanzierungTab property={property} analysis={analysis} />}
               {activeTab === 'location' && <LocationTab data={analysis.location} property={property} />}
               {activeTab === 'risk' && <RiskTab data={analysis.risk} property={property} />}
               {activeTab === 'scenarios' && <ScenarioTab property={property} />}
