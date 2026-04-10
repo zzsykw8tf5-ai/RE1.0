@@ -389,6 +389,25 @@ def _normalize_dcf_output(raw: dict) -> dict:
     }
 
 
+def _fin_params(prop: Property) -> dict:
+    """Extract saved financing parameters from property and map to DCF service keys."""
+    purchase_price = prop.purchase_price or 5_000_000
+    ltv = (prop.fin_ltv or 70) / 100.0                   # e.g. 70 → 0.70
+    interest = (prop.fin_interest_rate or 3.5) / 100.0   # e.g. 3.5 → 0.035
+    horizon = int(prop.fin_horizon or 10)
+    nebenkosten = (prop.fin_nebenkosten or 10) / 100.0   # e.g. 10 → 0.10
+    loan_amount = purchase_price * ltv
+    equity = purchase_price * (1 - ltv) + purchase_price * nebenkosten
+    return {
+        "loan_amount": loan_amount,
+        "interest_rate": interest,
+        "loan_term": horizon,          # treat hold period = amortization period
+        "hold_period": horizon,
+        "equity_invested": equity,
+        "closing_costs_pct": nebenkosten,
+    }
+
+
 @router.post("/german-valuation/{property_id}")
 def german_valuation(property_id: int, params: dict = None, db: Session = Depends(get_db)):
     params = params or {}
@@ -421,7 +440,8 @@ def dcf_analysis(property_id: int, params: dict = None, db: Session = Depends(ge
         "initial_noi": annual_rent * 0.7,
         "annual_rent": annual_rent,
         "property_type": prop.property_type,
-        **params,
+        **_fin_params(prop),   # saved financing params
+        **params,              # caller overrides last
     })
     return _normalize_dcf_output(raw)
 
@@ -480,6 +500,7 @@ def risk_analysis(property_id: int, params: dict = None, db: Session = Depends(g
         "initial_noi": annual_rent * 0.7,
         "annual_rent": annual_rent,
         "property_type": prop.property_type,
+        **_fin_params(prop),
     }))
     return _risk(_prop_dict(prop), tenants, dcf_result, params)
 
@@ -506,6 +527,7 @@ def full_analysis(property_id: int, db: Session = Depends(get_db)):
         "initial_noi": annual_rent * 0.7,
         "annual_rent": annual_rent,
         "property_type": prop.property_type,
+        **_fin_params(prop),
     }))
 
     loc_result = _normalize_location(_location({"city": prop.city or "Berlin", "zip_code": prop.zip_code or "10115", "address": prop.address or "", "property_type": prop.property_type or "OFFICE"}))
