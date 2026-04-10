@@ -41,6 +41,8 @@ export const updateProperty = async (id: number, data: Partial<{
   property_type: string; construction_year: number; total_area_sqm: number;
   land_area_sqm: number; floors: number; units: number;
   purchase_price: number; purchase_date: string;
+  fin_ltv: number; fin_interest_rate: number; fin_amort_rate: number;
+  fin_nebenkosten: number; fin_horizon: number;
 }>): Promise<Property> =>
   api.patch(`/api/properties/${id}`, data).then(r => r.data);
 

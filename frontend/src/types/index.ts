@@ -18,6 +18,11 @@ export interface Property {
   purchase_price: number;
   purchase_date: string;
   photo_url?: string | null;
+  fin_ltv?: number | null;
+  fin_interest_rate?: number | null;
+  fin_amort_rate?: number | null;
+  fin_nebenkosten?: number | null;
+  fin_horizon?: number | null;
   created_at: string;
   tenants?: Tenant[];
 }

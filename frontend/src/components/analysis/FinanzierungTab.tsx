@@ -1,9 +1,14 @@
 import { useState, useMemo } from 'react';
-import { Euro, Percent, Calendar, TrendingUp, AlertCircle, Info } from 'lucide-react';
+import { Euro, Percent, Calendar, TrendingUp, AlertCircle, Info, Save, Check } from 'lucide-react';
 import type { Property, FullAnalysis } from '../../types';
 import { formatEur } from '../../utils/format';
+import { updateProperty } from '../../services/api';
 
-interface Props { property: Property; analysis?: FullAnalysis | null; }
+interface Props {
+  property: Property;
+  analysis?: FullAnalysis | null;
+  onPropertyUpdate?: (p: Property) => void;
+}
 
 function SliderInput({
   label, value, onChange, min, max, step, unit, hint,
@@ -46,12 +51,32 @@ function MetricBox({ label, value, sub, highlight }: { label: string; value: str
   );
 }
 
-export default function FinanzierungTab({ property, analysis }: Props) {
-  const [ltv, setLtv] = useState(70);
-  const [interest, setInterest] = useState(3.5);
-  const [amortRate, setAmortRate] = useState(2.0);
-  const [nebenkosten, setNebenkosten] = useState(10);
-  const [horizon, setHorizon] = useState(10);
+export default function FinanzierungTab({ property, analysis, onPropertyUpdate }: Props) {
+  const [ltv, setLtv] = useState(property.fin_ltv ?? 70);
+  const [interest, setInterest] = useState(property.fin_interest_rate ?? 3.5);
+  const [amortRate, setAmortRate] = useState(property.fin_amort_rate ?? 2.0);
+  const [nebenkosten, setNebenkosten] = useState(property.fin_nebenkosten ?? 10);
+  const [horizon, setHorizon] = useState(property.fin_horizon ?? 10);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const updated = await updateProperty(property.id, {
+        fin_ltv: ltv,
+        fin_interest_rate: interest,
+        fin_amort_rate: amortRate,
+        fin_nebenkosten: nebenkosten,
+        fin_horizon: horizon,
+      });
+      onPropertyUpdate?.(updated);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch { /* ignore */ } finally {
+      setSaving(false);
+    }
+  };
 
   const calc = useMemo(() => {
     const pp = property.purchase_price || 0;
@@ -123,7 +148,17 @@ export default function FinanzierungTab({ property, analysis }: Props) {
       {/* Input panel */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="card space-y-5">
-          <h3 className="font-semibold text-apple-text flex items-center gap-2"><Percent size={14} className="text-apple-blue" />Finanzierungsparameter</h3>
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold text-apple-text flex items-center gap-2"><Percent size={14} className="text-apple-blue" />Finanzierungsparameter</h3>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="btn-primary flex items-center gap-1.5 text-xs px-3 py-1.5 disabled:opacity-50"
+            >
+              {saved ? <Check size={13} /> : <Save size={13} />}
+              {saving ? 'Speichern…' : saved ? 'Gespeichert' : 'Speichern'}
+            </button>
+          </div>
           <SliderInput label="Beleihungsauslauf (LTV)" value={ltv} onChange={setLtv} min={0} max={100} step={1} unit="%" hint="Anteil des Kaufpreises der fremdfinanziert wird" />
           <SliderInput label="Zinssatz" value={interest} onChange={setInterest} min={0.5} max={10} step={0.1} unit="%" />
           <SliderInput label="Anfangstilgung" value={amortRate} onChange={setAmortRate} min={0.5} max={10} step={0.1} unit="%" hint="Jährlicher Tilgungsanteil bei Beginn" />

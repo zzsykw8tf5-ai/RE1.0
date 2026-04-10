@@ -45,6 +45,13 @@ class Property(Base):
     purchase_price = Column(Float)
     purchase_date = Column(Date)
     photo_url = Column(String, nullable=True)  # Base64 data URL or path
+
+    # Finanzierungsparameter (persistiert für Finanzierungs-Tab)
+    fin_ltv = Column(Float, nullable=True)           # Loan-to-Value in %
+    fin_interest_rate = Column(Float, nullable=True) # Zinssatz in %
+    fin_amort_rate = Column(Float, nullable=True)    # Anfangstilgung in %
+    fin_nebenkosten = Column(Float, nullable=True)   # Kaufnebenkosten in %
+    fin_horizon = Column(Integer, nullable=True)     # Planungshorizont in Jahren
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 

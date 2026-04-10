@@ -8,7 +8,7 @@ import LoadingSpinner from '../ui/LoadingSpinner';
 
 interface Props { property: Property; }
 
-const DEFAULT_PARAMS = {
+const BASE_PARAMS = {
   rent_growth_rate: 2.0,
   vacancy_rate: 5.0,
   expense_growth_rate: 2.5,
@@ -19,6 +19,15 @@ const DEFAULT_PARAMS = {
   interest_rate: 4.5,
   hold_period: 10,
 };
+
+function makeDefaultParams(property: import('../../types').Property) {
+  return {
+    ...BASE_PARAMS,
+    ltv: property.fin_ltv ?? BASE_PARAMS.ltv,
+    interest_rate: property.fin_interest_rate ?? BASE_PARAMS.interest_rate,
+    hold_period: property.fin_horizon ?? BASE_PARAMS.hold_period,
+  };
+}
 
 interface ParamInputProps {
   label: string; sub: string; param: string;
@@ -57,7 +66,7 @@ function ParamInput({ label, sub, param, value, min, max, step, onChange }: Para
 }
 
 export default function ScenarioTab({ property }: Props) {
-  const [params, setParams] = useState(DEFAULT_PARAMS);
+  const [params, setParams] = useState(() => makeDefaultParams(property));
   const [result, setResult] = useState<DCFResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
@@ -111,7 +120,7 @@ export default function ScenarioTab({ property }: Props) {
   };
 
   const loadScenario = (s: Scenario) => {
-    const p = JSON.parse(s.params_json) as typeof DEFAULT_PARAMS;
+    const p = JSON.parse(s.params_json) as typeof BASE_PARAMS;
     setParams(p);
     const r = JSON.parse(s.results_json) as DCFResult;
     setResult(r);

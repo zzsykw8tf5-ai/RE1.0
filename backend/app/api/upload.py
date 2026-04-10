@@ -302,6 +302,11 @@ class PropertyUpdate(BaseModel):
     units: int | None = None
     purchase_price: float | None = None
     purchase_date: str | None = None
+    fin_ltv: float | None = None
+    fin_interest_rate: float | None = None
+    fin_amort_rate: float | None = None
+    fin_nebenkosten: float | None = None
+    fin_horizon: int | None = None
 
 
 @router.patch("/properties/{property_id}")

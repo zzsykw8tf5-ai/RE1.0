@@ -57,6 +57,11 @@ from .database import IS_SQLITE
 _col_migrations = [
     "ALTER TABLE properties ADD COLUMN photo_url VARCHAR",
     "ALTER TABLE rental_areas ADD COLUMN beds INTEGER",
+    "ALTER TABLE properties ADD COLUMN fin_ltv FLOAT",
+    "ALTER TABLE properties ADD COLUMN fin_interest_rate FLOAT",
+    "ALTER TABLE properties ADD COLUMN fin_amort_rate FLOAT",
+    "ALTER TABLE properties ADD COLUMN fin_nebenkosten FLOAT",
+    "ALTER TABLE properties ADD COLUMN fin_horizon INTEGER",
 ]
 for _stmt in _col_migrations:
     try:
