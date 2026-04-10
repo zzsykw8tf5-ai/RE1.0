@@ -241,6 +241,29 @@ export const uploadPropertyPhoto = (propertyId: number, file: File): Promise<Pro
 export const deletePropertyPhoto = (propertyId: number): Promise<void> =>
   api.delete(`/api/properties/${propertyId}/photo`).then(r => r.data);
 
+// ---- Tasks / Measures ----
+import type { PropertyTask, TaskMeta } from '../types';
+export interface TasksResponse { tasks: PropertyTask[]; categories: TaskMeta[]; statuses: TaskMeta[]; priorities: TaskMeta[]; }
+export const listTasks = (propertyId: number): Promise<TasksResponse> =>
+  api.get(`/api/properties/${propertyId}/tasks`).then(r => r.data);
+
+export const createTask = (propertyId: number, data: {
+  title: string; description?: string; category?: string; status?: string;
+  priority?: string; cost_estimate?: number | null; cost_actual?: number | null;
+  due_date?: string | null; assigned_to?: string | null;
+}): Promise<PropertyTask> =>
+  api.post(`/api/properties/${propertyId}/tasks`, data).then(r => r.data);
+
+export const updateTask = (propertyId: number, taskId: number, data: Partial<{
+  title: string; description: string; category: string; status: string;
+  priority: string; cost_estimate: number | null; cost_actual: number | null;
+  due_date: string | null; assigned_to: string | null;
+}>): Promise<PropertyTask> =>
+  api.patch(`/api/properties/${propertyId}/tasks/${taskId}`, data).then(r => r.data);
+
+export const deleteTask = (propertyId: number, taskId: number): Promise<void> =>
+  api.delete(`/api/properties/${propertyId}/tasks/${taskId}`).then(r => r.data);
+
 export const getHealthcareResearch = (nutzungsart: string): Promise<HealthcareResearch> =>
   api.get(`/api/healthcare-research/${nutzungsart}`).then(r => r.data);
 

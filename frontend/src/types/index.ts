@@ -27,6 +27,29 @@ export interface Property {
   tenants?: Tenant[];
 }
 
+export interface PropertyTask {
+  id: number;
+  property_id: number;
+  title: string;
+  description?: string | null;
+  category: string;
+  category_label: string;
+  status: string;
+  status_label: string;
+  priority: string;
+  priority_label: string;
+  cost_estimate?: number | null;
+  cost_actual?: number | null;
+  due_date?: string | null;
+  assigned_to?: string | null;
+  created_at?: string | null;
+}
+
+export interface TaskMeta {
+  key: string;
+  label: string;
+}
+
 export interface Tenant {
   id: number;
   property_id: number;

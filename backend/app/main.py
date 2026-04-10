@@ -12,6 +12,7 @@ from .api.market import router as market_router
 from .api.news import router as news_router
 from .api.areas import router as areas_router
 from .api.reviews import router as reviews_router
+from .api.tasks import router as tasks_router
 
 # Create database tables on startup
 Base.metadata.create_all(bind=engine)
@@ -49,6 +50,7 @@ app.include_router(market_router)
 app.include_router(news_router)
 app.include_router(areas_router)
 app.include_router(reviews_router)
+app.include_router(tasks_router)
 
 # Runtime migrations – add new columns + extend enums if missing
 from sqlalchemy import text as _text

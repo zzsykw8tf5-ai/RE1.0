@@ -58,6 +58,7 @@ class Property(Base):
     tenants = relationship("Tenant", back_populates="property", cascade="all, delete-orphan")
     scenarios = relationship("Scenario", back_populates="property", cascade="all, delete-orphan")
     areas = relationship("RentalArea", back_populates="property", cascade="all, delete-orphan")
+    tasks = relationship("PropertyTask", back_populates="property", cascade="all, delete-orphan")
 
 
 class Tenant(Base):
@@ -180,3 +181,54 @@ class RentalArea(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     property = relationship("Property", back_populates="areas")
+
+
+# ── Aufgaben / Maßnahmen ───────────────────────────────────────────────────────
+
+TASK_CATEGORIES = {
+    "CAPEX":       "CapEx-Maßnahme",
+    "MAINTENANCE": "Instandhaltung",
+    "SALES":       "Vermarktung/Verkauf",
+    "LEGAL":       "Rechtliches",
+    "MANAGEMENT":  "Verwaltung",
+    "OTHER":       "Sonstiges",
+}
+
+TASK_STATUSES = {
+    "BACKLOG":     "Backlog",
+    "TODO":        "Offen",
+    "IN_PROGRESS": "In Bearbeitung",
+    "REVIEW":      "In Prüfung",
+    "DONE":        "Erledigt",
+    "CANCELLED":   "Abgebrochen",
+}
+
+TASK_PRIORITIES = {
+    "LOW":      "Niedrig",
+    "MEDIUM":   "Mittel",
+    "HIGH":     "Hoch",
+    "CRITICAL": "Kritisch",
+}
+
+
+class PropertyTask(Base):
+    """Aufgabe / Maßnahme zu einer Immobilie (CapEx, Wartung, Verkauf, …)."""
+    __tablename__ = "property_tasks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    property_id = Column(Integer, ForeignKey("properties.id"), nullable=False)
+
+    title = Column(String(500), nullable=False)
+    description = Column(Text)
+    category = Column(String(20), default="OTHER")    # key from TASK_CATEGORIES
+    status = Column(String(20), default="TODO")       # key from TASK_STATUSES
+    priority = Column(String(10), default="MEDIUM")   # key from TASK_PRIORITIES
+    cost_estimate = Column(Float, nullable=True)      # geplante Kosten in €
+    cost_actual = Column(Float, nullable=True)        # tatsächliche Kosten in €
+    due_date = Column(Date, nullable=True)
+    assigned_to = Column(String(200), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
+
+    property = relationship("Property", back_populates="tasks")

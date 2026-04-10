@@ -14,8 +14,9 @@ import RiskTab from '../components/analysis/RiskTab';
 import ScenarioTab from '../components/analysis/ScenarioTab';
 import OverviewTab from '../components/analysis/OverviewTab';
 import FinanzierungTab from '../components/analysis/FinanzierungTab';
+import TasksTab from '../components/analysis/TasksTab';
 
-type Tab = 'overview' | 'german' | 'us' | 'dcf' | 'finanzierung' | 'location' | 'risk' | 'scenarios';
+type Tab = 'overview' | 'german' | 'us' | 'dcf' | 'finanzierung' | 'location' | 'risk' | 'scenarios' | 'tasks';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'overview', label: 'Übersicht' },
@@ -26,6 +27,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'location', label: 'Standort' },
   { id: 'risk', label: 'Risiko' },
   { id: 'scenarios', label: 'Szenarien' },
+  { id: 'tasks', label: 'Aufgaben' },
 ];
 
 const PROPERTY_TYPES = ['RESIDENTIAL', 'OFFICE', 'RETAIL', 'INDUSTRIAL', 'HEALTHCARE', 'MIXED'] as const;
@@ -218,6 +220,7 @@ export default function PropertyPage() {
               {activeTab === 'location' && <LocationTab data={analysis.location} property={property} />}
               {activeTab === 'risk' && <RiskTab data={analysis.risk} property={property} />}
               {activeTab === 'scenarios' && <ScenarioTab property={property} />}
+              {activeTab === 'tasks' && <TasksTab property={property} />}
             </>
           )}
         </div>
