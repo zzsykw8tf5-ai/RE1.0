@@ -182,8 +182,8 @@ export const getNews = (q: string): Promise<{ items: NewsItem[] }> =>
 
 // ---- Tenant suggestions ----
 export interface TenantSuggestion { name: string; is_company: boolean; type_label?: string; }
-export const suggestTenants = (address: string, city: string = ''): Promise<{ suggestions: TenantSuggestion[] }> =>
-  api.get('/api/suggest-tenants', { params: { address, city } }).then(r => r.data);
+export const suggestTenants = (address: string, city: string = '', property_type: string = ''): Promise<{ suggestions: TenantSuggestion[] }> =>
+  api.get('/api/suggest-tenants', { params: { address, city, property_type } }).then(r => r.data);
 
 // ---- Company search (Clearbit autocomplete + DuckDuckGo fallback) ----
 export interface CompanySuggestion { name: string; domain: string; logo: string; is_company: boolean; source: string; }

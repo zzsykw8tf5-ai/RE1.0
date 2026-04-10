@@ -183,55 +183,120 @@ out tags;
     return results
 
 
+_PROPERTY_TYPE_DDG_TERMS: dict[str, list[str]] = {
+    "HEALTHCARE": [
+        "Pflegeheim Pflegedienst Seniorenresidenz Betreiber",
+        "Klinik Krankenhaus Ärztehaus MVZ Arztpraxis",
+    ],
+    "OFFICE":     [
+        "GmbH AG KG Unternehmen Büro",
+        "Gewerbe ansässige Unternehmen Firma",
+    ],
+    "RETAIL":     [
+        "GmbH AG Einzelhandel Shop Filiale",
+        "Gewerbe Einzelhändler Ladenlokal",
+    ],
+    "INDUSTRIAL": [
+        "GmbH AG Logistik Produktion Lager Spedition",
+        "Gewerbe Industrie Fertigung",
+    ],
+    "MIXED":      [
+        "GmbH AG Unternehmen Gewerbe",
+        "Gewerbe ansässige Unternehmen Firma",
+    ],
+}
+
+# OSM tags relevant for healthcare
+_HEALTHCARE_OSM_TAGS = {
+    "nursing_home", "social_facility", "hospital", "clinic", "doctors",
+    "dentist", "physiotherapist", "retirement_home",
+}
+
+
 @router.get("/suggest-tenants")
-async def suggest_tenants(address: str, city: str = "") -> dict:
+async def suggest_tenants(address: str, city: str = "", property_type: str = "") -> dict:
     """
-    Find commercial tenants at the given address.
-    Primary: OpenStreetMap Overpass API (geocode → nearby shops/offices).
-    Fallback: DuckDuckGo company name extraction.
+    Find tenants at the given address matching the property type.
+    Primary: OpenStreetMap Overpass + northdata.de
+    Fallback: DuckDuckGo (type-specific search terms)
     """
+    import asyncio
+
     if not address or len(address.strip()) < 3:
         return {"suggestions": []}
 
     addr = address.strip()
     city_part = city.strip()
+    ptype = property_type.upper()
+    is_healthcare = ptype == "HEALTHCARE"
 
-    # Step 1: geocode
+    # ── OSM: find nearby facilities ───────────────────────────────────────────
     coords = await _geocode_address(addr, city_part)
-
+    osm_results: list[dict] = []
     if coords:
         lat, lng = coords
-        # Use larger radius (500m) to also catch healthcare/social facilities
-        results = await _overpass_tenants(lat, lng, radius=500)
-        if results:
-            return {"suggestions": results[:15]}
+        radius = 800 if is_healthcare else 500
+        all_osm = await _overpass_tenants(lat, lng, radius=radius)
+        if is_healthcare:
+            # Prioritise healthcare facility types
+            hc = [r for r in all_osm if r.get("type_label") in {
+                _OSM_SHOP_LABELS.get(t, t) for t in _HEALTHCARE_OSM_TAGS
+            }]
+            others = [r for r in all_osm if r not in hc]
+            osm_results = hc + others
+        else:
+            osm_results = all_osm
 
-    # Fallback: DuckDuckGo search for company names at this address
-    ddg_url = f"https://html.duckduckgo.com/html/?q={quote_plus(f'{addr} {city_part} GmbH AG Unternehmen Gewerbe')}&kl=de-de"
-    suggestions: list[dict] = []
-    seen: set[str] = set()
-    company_re = re.compile(
-        r'([A-ZÄÖÜ][A-Za-zÄÖÜäöüß&\s\.\-]{1,50}'
-        r'(?:GmbH\s*&\s*Co\.\s*KG|GmbH\s*&\s*Co|GmbH|AG|KG|SE|UG|mbH|eG|Ltd|GbR|OHG))',
-        re.UNICODE,
+    if osm_results:
+        return {"suggestions": osm_results[:15]}
+
+    # ── Fallback: northdata + DuckDuckGo ─────────────────────────────────────
+    ddg_terms = _PROPERTY_TYPE_DDG_TERMS.get(ptype, _PROPERTY_TYPE_DDG_TERMS["MIXED"])
+
+    nd_task = _northdata_search(addr, city_part)
+    ddg1_task = _ddg_search(f'"{addr}" {city_part} {ddg_terms[0]}')
+    ddg2_query = (
+        f'{city_part} {ddg_terms[1]}' if is_healthcare and city_part
+        else f'{addr} {city_part} {ddg_terms[1] if len(ddg_terms) > 1 else ""}'
     )
-    try:
-        async with httpx.AsyncClient(headers=_HEADERS, timeout=9, follow_redirects=True) as client:
-            resp = await client.get(ddg_url)
-        raw = re.sub(r'<[^>]+>', ' ', resp.text)
-        for m in company_re.finditer(raw):
-            name = ' '.join(m.group(1).split()).strip('.,;: ')
-            nl = name.lower()
-            if nl in seen or len(name) < 5 or len(name) > 90:
-                continue
-            if any(skip in nl for skip in _SKIP_PHRASES):
-                continue
-            seen.add(nl)
-            suggestions.append({"name": name, "type_label": "Unternehmen", "is_company": True})
-    except Exception:
-        pass
+    ddg2_task = _ddg_search(ddg2_query)
 
-    return {"suggestions": suggestions[:8]}
+    nd_results, ddg1_html, ddg2_html = await asyncio.gather(nd_task, ddg1_task, ddg2_task)
+
+    seen: set[str] = set()
+    suggestions: list[dict] = []
+
+    for item in nd_results:
+        nl = item["name"].lower()
+        if nl not in seen:
+            seen.add(nl)
+            suggestions.append(item)
+
+    for html in [ddg1_html, ddg2_html]:
+        if html:
+            suggestions.extend(_extract_companies(html, seen))
+
+    # For healthcare also try to extract non-corporate names (e.g. "Alloheim", "Korian")
+    if is_healthcare:
+        hc_re = re.compile(
+            r'\b((?:Pflegeheim|Seniorenresidenz|Seniorenstift|Klinik|Ärztehaus|Pflegezentrum|Altenheim)'
+            r'\s+[A-ZÄÖÜa-zäöüß\s\-]{3,40})',
+            re.UNICODE,
+        )
+        for html in [ddg1_html, ddg2_html]:
+            if not html:
+                continue
+            text = _html_to_text(html)
+            for m in hc_re.finditer(text):
+                name = ' '.join(m.group(1).split()).strip('.,;: ')
+                nl = name.lower()
+                if nl not in seen and 5 <= len(name) <= 80:
+                    seen.add(nl)
+                    suggestions.append({"name": name, "is_company": False,
+                                        "type_label": "Gesundheitseinrichtung"})
+
+    suggestions.sort(key=lambda x: (0 if x.get("is_company") else 1))
+    return {"suggestions": suggestions[:10]}
 
 
 _COMPANY_SUFFIXES = re.compile(
@@ -379,44 +444,6 @@ async def _northdata_search(address: str, city: str) -> list[dict]:
         return []
 
 
-@router.get("/suggest-tenants")
-async def suggest_tenants(address: str, city: str = "") -> dict:
-    """
-    Find commercial tenants registered at the given address.
-    Uses northdata.de (primary) and two DuckDuckGo queries (secondary).
-    """
-    import asyncio
-
-    if not address or len(address.strip()) < 3:
-        return {"suggestions": []}
-
-    addr = address.strip()
-    city_part = city.strip()
-
-    # Three parallel searches
-    nd_task = _northdata_search(addr, city_part)
-    ddg1_task = _ddg_search(f'"{addr}" {city_part} GmbH AG Unternehmen Gewerbe')
-    ddg2_task = _ddg_search(f'{addr} {city_part} Gewerbemieter ansässige Unternehmen Firma')
-
-    nd_results, ddg1_html, ddg2_html = await asyncio.gather(nd_task, ddg1_task, ddg2_task)
-
-    seen: set[str] = set()
-    suggestions: list[dict] = []
-
-    # northdata results are highest quality
-    for item in nd_results:
-        nl = item["name"].lower()
-        if nl not in seen:
-            seen.add(nl)
-            suggestions.append(item)
-
-    # DuckDuckGo: extract company names from raw HTML
-    for html in [ddg1_html, ddg2_html]:
-        if html:
-            suggestions.extend(_extract_companies(html, seen))
-
-    suggestions.sort(key=lambda x: (0 if x["is_company"] else 1))
-    return {"suggestions": suggestions[:8]}
 
 
 @router.get("/company-search")

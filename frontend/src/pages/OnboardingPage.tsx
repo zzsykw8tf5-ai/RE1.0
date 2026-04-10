@@ -10,7 +10,8 @@ import { getProperty, getMarketData, addTenant, deleteTenant, updateTenant, sugg
 import type { Property, Tenant, RentalArea } from '../types';
 import type { TenantSuggestion, CompanySuggestion } from '../services/api';
 
-const COMMERCIAL_TYPES = ['OFFICE', 'RETAIL', 'INDUSTRIAL', 'MIXED'];
+// Types that support address-based tenant suggestions (all non-residential)
+const SUGGESTION_TYPES = ['OFFICE', 'RETAIL', 'INDUSTRIAL', 'MIXED', 'HEALTHCARE'];
 
 const TODAY = new Date().toISOString().slice(0, 10);
 
@@ -194,18 +195,18 @@ function TenantStep({
   const [nameDropdown, setNameDropdown] = useState<{ rowIdx: number; results: CompanySuggestion[] } | null>(null);
   const nameSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const isCommercial = COMMERCIAL_TYPES.includes(property.property_type);
+  const showSuggestions = SUGGESTION_TYPES.includes(property.property_type);
 
   // Auto-load address-based tenant suggestions once on mount
   useEffect(() => {
-    if (!isCommercial || !property.address || suggestFired.current) return;
+    if (!showSuggestions || !property.address || suggestFired.current) return;
     suggestFired.current = true;
     setSuggestLoading(true);
-    suggestTenants(property.address, property.city ?? '')
+    suggestTenants(property.address, property.city ?? '', property.property_type)
       .then(r => setSuggestions(r.suggestions))
       .catch(() => {})
       .finally(() => setSuggestLoading(false));
-  }, [isCommercial, property.address, property.city]);
+  }, [showSuggestions, property.address, property.city, property.property_type]);
 
   const handleNameChange = (i: number, value: string) => {
     updateRow(i, { name: value });
@@ -237,7 +238,7 @@ function TenantStep({
     if (!property.address) return;
     setSuggestLoading(true);
     try {
-      const res = await suggestTenants(property.address, property.city ?? '');
+      const res = await suggestTenants(property.address, property.city ?? '', property.property_type);
       setSuggestions(res.suggestions);
     } catch {
       setSuggestions([]);
@@ -364,7 +365,7 @@ function TenantStep({
       {market && <MarketBadge market={market} />}
 
       {/* Address-based tenant suggestions */}
-      {isCommercial && property.address && (suggestLoading || suggestions.length > 0) && (
+      {showSuggestions && property.address && (suggestLoading || suggestions.length > 0) && (
         <div className="mb-4 rounded-apple border border-apple-blue/30 bg-blue-50/60 overflow-hidden">
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-apple-blue/20">
             <div className="flex items-center gap-2 text-sm font-semibold text-apple-blue">
