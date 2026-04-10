@@ -186,12 +186,14 @@ class RentalArea(Base):
 # ── Aufgaben / Maßnahmen ───────────────────────────────────────────────────────
 
 TASK_CATEGORIES = {
-    "CAPEX":       "CapEx-Maßnahme",
-    "MAINTENANCE": "Instandhaltung",
-    "SALES":       "Vermarktung/Verkauf",
-    "LEGAL":       "Rechtliches",
-    "MANAGEMENT":  "Verwaltung",
-    "OTHER":       "Sonstiges",
+    "LEASING":      "Vermietung",
+    "SALES":        "Verkauf/Transaktion",
+    "CAPEX":        "CapEx / Investition",
+    "CONSTRUCTION": "Bauprojekt",
+    "MAINTENANCE":  "Instandhaltung",
+    "LEGAL":        "Rechtliches",
+    "MANAGEMENT":   "Verwaltung",
+    "OTHER":        "Sonstiges",
 }
 
 TASK_STATUSES = {
@@ -227,6 +229,8 @@ class PropertyTask(Base):
     cost_actual = Column(Float, nullable=True)        # tatsächliche Kosten in €
     due_date = Column(Date, nullable=True)
     assigned_to = Column(String(200), nullable=True)
+    area_id = Column(Integer, ForeignKey("rental_areas.id"), nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())

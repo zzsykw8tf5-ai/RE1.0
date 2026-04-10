@@ -242,8 +242,16 @@ export const deletePropertyPhoto = (propertyId: number): Promise<void> =>
   api.delete(`/api/properties/${propertyId}/photo`).then(r => r.data);
 
 // ---- Tasks / Measures ----
-import type { PropertyTask, TaskMeta } from '../types';
-export interface TasksResponse { tasks: PropertyTask[]; categories: TaskMeta[]; statuses: TaskMeta[]; priorities: TaskMeta[]; }
+import type { PropertyTask, TaskMeta, TaskRef } from '../types';
+export interface TasksResponse {
+  tasks: PropertyTask[];
+  categories: TaskMeta[];
+  statuses: TaskMeta[];
+  priorities: TaskMeta[];
+  templates: Record<string, { title: string; priority: string }[]>;
+  areas: TaskRef[];
+  tenants: TaskRef[];
+}
 export const listTasks = (propertyId: number): Promise<TasksResponse> =>
   api.get(`/api/properties/${propertyId}/tasks`).then(r => r.data);
 
@@ -251,6 +259,7 @@ export const createTask = (propertyId: number, data: {
   title: string; description?: string; category?: string; status?: string;
   priority?: string; cost_estimate?: number | null; cost_actual?: number | null;
   due_date?: string | null; assigned_to?: string | null;
+  area_id?: number | null; tenant_id?: number | null;
 }): Promise<PropertyTask> =>
   api.post(`/api/properties/${propertyId}/tasks`, data).then(r => r.data);
 
@@ -258,6 +267,7 @@ export const updateTask = (propertyId: number, taskId: number, data: Partial<{
   title: string; description: string; category: string; status: string;
   priority: string; cost_estimate: number | null; cost_actual: number | null;
   due_date: string | null; assigned_to: string | null;
+  area_id: number | null; tenant_id: number | null;
 }>): Promise<PropertyTask> =>
   api.patch(`/api/properties/${propertyId}/tasks/${taskId}`, data).then(r => r.data);
 

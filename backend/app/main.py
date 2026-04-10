@@ -64,6 +64,8 @@ _col_migrations = [
     "ALTER TABLE properties ADD COLUMN fin_amort_rate FLOAT",
     "ALTER TABLE properties ADD COLUMN fin_nebenkosten FLOAT",
     "ALTER TABLE properties ADD COLUMN fin_horizon INTEGER",
+    "ALTER TABLE property_tasks ADD COLUMN area_id INTEGER",
+    "ALTER TABLE property_tasks ADD COLUMN tenant_id INTEGER",
 ]
 for _stmt in _col_migrations:
     try:

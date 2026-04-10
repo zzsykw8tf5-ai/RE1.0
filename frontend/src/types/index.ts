@@ -42,13 +42,15 @@ export interface PropertyTask {
   cost_actual?: number | null;
   due_date?: string | null;
   assigned_to?: string | null;
+  area_id?: number | null;
+  area_name?: string | null;
+  tenant_id?: number | null;
+  tenant_name?: string | null;
   created_at?: string | null;
 }
 
-export interface TaskMeta {
-  key: string;
-  label: string;
-}
+export interface TaskMeta { key: string; label: string; }
+export interface TaskRef { id: number; name: string; }
 
 export interface Tenant {
   id: number;
