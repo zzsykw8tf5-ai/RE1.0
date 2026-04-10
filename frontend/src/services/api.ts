@@ -274,6 +274,16 @@ export const updateTask = (propertyId: number, taskId: number, data: Partial<{
 export const deleteTask = (propertyId: number, taskId: number): Promise<void> =>
   api.delete(`/api/properties/${propertyId}/tasks/${taskId}`).then(r => r.data);
 
+export interface TaskSummaryItem {
+  property_id: number;
+  property_name: string;
+  counts: Record<string, number>;
+  total: number;
+  open: number;
+}
+export const getTasksSummary = (): Promise<TaskSummaryItem[]> =>
+  api.get('/api/tasks/summary').then(r => r.data);
+
 export const getHealthcareResearch = (nutzungsart: string): Promise<HealthcareResearch> =>
   api.get(`/api/healthcare-research/${nutzungsart}`).then(r => r.data);
 

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Building2, TrendingUp, Euro, Users, Plus, ArrowRight, BarChart3, AlertTriangle } from 'lucide-react';
+import { Building2, TrendingUp, Euro, Users, Plus, ArrowRight, BarChart3, AlertTriangle, CheckSquare } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import TopBar from '../components/Layout/TopBar';
 import StatCard from '../components/ui/StatCard';
-import { getProperties } from '../services/api';
+import { getProperties, getTasksSummary } from '../services/api';
 import type { Property } from '../types';
+import type { TaskSummaryItem } from '../services/api';
 import { formatEur, formatSqm, propertyTypeLabel } from '../utils/format';
 
 const TYPE_COLORS: Record<string, string> = {
@@ -17,13 +18,38 @@ const TYPE_COLORS: Record<string, string> = {
   MIXED: '#AF52DE',
 };
 
+const TASK_STATUS_COLORS: Record<string, string> = {
+  BACKLOG:     '#8E8E93',
+  TODO:        '#0066CC',
+  IN_PROGRESS: '#FF9500',
+  REVIEW:      '#AF52DE',
+  DONE:        '#34C759',
+  CANCELLED:   '#FF3B30',
+};
+
+const TASK_STATUS_LABELS: Record<string, string> = {
+  BACKLOG: 'Backlog', TODO: 'Offen', IN_PROGRESS: 'In Arbeit',
+  REVIEW: 'Review', DONE: 'Erledigt', CANCELLED: 'Abgebrochen',
+};
+
+const STATUS_ORDER = ['BACKLOG', 'TODO', 'IN_PROGRESS', 'REVIEW', 'DONE'];
+
+function truncate(s: string, n = 14) { return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+
 export default function DashboardPage() {
   const navigate = useNavigate();
   const [properties, setProperties] = useState<Property[]>([]);
+  const [taskSummary, setTaskSummary] = useState<TaskSummaryItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getProperties().then(d => { setProperties(d); setLoading(false); }).catch(() => setLoading(false));
+    Promise.all([
+      getProperties(),
+      getTasksSummary().catch(() => []),
+    ]).then(([props, tasks]) => {
+      setProperties(props);
+      setTaskSummary(tasks);
+    }).finally(() => setLoading(false));
   }, []);
 
   const totalValue = properties.reduce((s, p) => s + (p.purchase_price || 0), 0);
@@ -148,6 +174,88 @@ export default function DashboardPage() {
                 </div>
               </div>
             </div>
+
+            {/* ── Task Overview Widget ───────────────────────────────── */}
+            {taskSummary.length > 0 && (
+              <div className="card">
+                <div className="flex items-center justify-between mb-5">
+                  <h2 className="font-semibold text-apple-text flex items-center gap-2">
+                    <CheckSquare size={16} className="text-apple-blue" />
+                    Aufgaben-Übersicht
+                  </h2>
+                  <div className="flex items-center gap-3">
+                    {STATUS_ORDER.map(s => (
+                      <span key={s} className="flex items-center gap-1 text-xs text-apple-text-secondary">
+                        <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: TASK_STATUS_COLORS[s] }} />
+                        {TASK_STATUS_LABELS[s]}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Stacked Bar Chart */}
+                  <ResponsiveContainer width="100%" height={220}>
+                    <BarChart
+                      data={taskSummary.slice(0, 8).map(item => ({
+                        name: truncate(item.property_name),
+                        property_id: item.property_id,
+                        ...STATUS_ORDER.reduce((acc, s) => ({ ...acc, [s]: item.counts[s] || 0 }), {}),
+                      }))}
+                      barSize={28}
+                      onClick={(d) => {
+                        const pid = (d as { activePayload?: { payload: { property_id: number } }[] })?.activePayload?.[0]?.payload?.property_id;
+                        if (pid) navigate(`/property/${pid}?tab=tasks`);
+                      }}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#6E6E73' }} axisLine={false} tickLine={false} />
+                      <YAxis hide allowDecimals={false} />
+                      <Tooltip
+                        contentStyle={{ background: 'white', border: '1px solid #E8E8ED', borderRadius: 8, fontSize: 12 }}
+                        cursor={{ fill: '#F5F5F7' }}
+                        formatter={(value, name) => [value, TASK_STATUS_LABELS[String(name)] || String(name)]}
+                      />
+                      {STATUS_ORDER.map((s, i) => (
+                        <Bar key={s} dataKey={s} stackId="a" fill={TASK_STATUS_COLORS[s]}
+                          radius={i === STATUS_ORDER.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
+                      ))}
+                    </BarChart>
+                  </ResponsiveContainer>
+
+                  {/* Clickable Property List */}
+                  <div className="space-y-2">
+                    {taskSummary.slice(0, 6).map(item => (
+                      <button
+                        key={item.property_id}
+                        onClick={() => navigate(`/property/${item.property_id}?tab=tasks`)}
+                        className="w-full flex items-center gap-3 p-2.5 rounded-lg hover:bg-apple-gray transition-all group text-left"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-apple-text truncate">{item.property_name}</div>
+                          <div className="flex gap-1.5 mt-1">
+                            {STATUS_ORDER.filter(s => item.counts[s]).map(s => (
+                              <span key={s} className="text-xs px-1.5 py-0.5 rounded-full font-medium"
+                                style={{ backgroundColor: TASK_STATUS_COLORS[s] + '20', color: TASK_STATUS_COLORS[s] }}>
+                                {item.counts[s]} {TASK_STATUS_LABELS[s]}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          {item.open > 0 && (
+                            <span className="text-xs font-semibold text-apple-orange bg-orange-50 px-2 py-0.5 rounded-full">
+                              {item.open} offen
+                            </span>
+                          )}
+                          <ArrowRight size={13} className="text-apple-text-tertiary opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

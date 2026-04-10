@@ -125,6 +125,33 @@ def _task_dict(t: PropertyTask, db: Session | None = None) -> dict:
     }
 
 
+# ── GET /api/tasks/summary ───────────────────────────────────────────────────
+
+@router.get("/tasks/summary")
+def tasks_summary(db: Session = Depends(get_db)):
+    """Return task counts per property and status for dashboard view."""
+    from sqlalchemy import func
+    props = {p.id: p.name for p in db.query(Property).all()}
+    rows = (
+        db.query(PropertyTask.property_id, PropertyTask.status, func.count(PropertyTask.id).label("count"))
+        .group_by(PropertyTask.property_id, PropertyTask.status)
+        .all()
+    )
+    summary: dict[int, dict] = {}
+    for row in rows:
+        pid = row.property_id
+        if pid not in summary:
+            summary[pid] = {"property_id": pid, "property_name": props.get(pid, f"#{pid}"), "counts": {}}
+        summary[pid]["counts"][row.status] = row.count
+    result = []
+    for item in summary.values():
+        total = sum(item["counts"].values())
+        open_count = sum(v for k, v in item["counts"].items() if k not in ("DONE", "CANCELLED"))
+        result.append({**item, "total": total, "open": open_count})
+    result.sort(key=lambda x: x["open"], reverse=True)
+    return result
+
+
 # ── GET /api/properties/{id}/tasks ───────────────────────────────────────────
 
 @router.get("/properties/{property_id}/tasks")

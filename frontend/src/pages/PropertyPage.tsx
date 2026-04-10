@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { MapPin, Calendar, Ruler, Users, Euro, Download, RefreshCw, Trash2, ChevronLeft, Pencil, X, Check, UserPlus, Layers } from 'lucide-react';
 import TopBar from '../components/Layout/TopBar';
 import { getProperty, runFullAnalysis, downloadReport, deleteProperty, updateProperty } from '../services/api';
@@ -59,11 +59,12 @@ function toEditForm(p: Property): EditForm {
 export default function PropertyPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [property, setProperty] = useState<Property | null>(null);
   const [analysis, setAnalysis] = useState<FullAnalysis | null>(null);
   const [loading, setLoading] = useState(true);
   const [analysisLoading, setAnalysisLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<Tab>('overview');
+  const [activeTab, setActiveTab] = useState<Tab>((searchParams.get('tab') as Tab) || 'overview');
   const [editOpen, setEditOpen] = useState(false);
   const [editForm, setEditForm] = useState<EditForm | null>(null);
   const [editSaving, setEditSaving] = useState(false);
